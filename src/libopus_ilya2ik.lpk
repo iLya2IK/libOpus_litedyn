@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <Name Value="libopus_ilya2ik"/>
+    <Type Value="RunAndDesignTime"/>
+    <Author Value="Ilya Medvedkov"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)/"/>
+      </SearchPaths>
+    </CompilerOptions>
+    <Description Value="Free pascal wrapper around Opus library"/>
+    <License Value="LGPL v3.0"/>
+    <Version Minor="8"/>
+    <Files>
+      <Item>
+        <Filename Value="oglopuswrapper.pas"/>
+        <UnitName Value="OGLOpusWrapper"/>
+      </Item>
+      <Item>
+        <Filename Value="libopus_dynlite.pas"/>
+        <UnitName Value="libOpus_dynlite"/>
+      </Item>
+    </Files>
+    <RequiredPkgs>
+      <Item>
+        <PackageName Value="libogg_ilya2ik"/>
+      </Item>
+      <Item>
+        <PackageName Value="FCL"/>
+      </Item>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>
