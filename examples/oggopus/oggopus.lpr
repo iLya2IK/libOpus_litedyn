@@ -1,4 +1,4 @@
-program opusstreaming;
+program oggopus;
 
 uses
   {$ifdef LINUX}
@@ -105,7 +105,7 @@ begin
     channels := 2;
   end;
 
-  Result := FStream.SaveToFile(Fn, oemVBR, channels, Frequency, 128, 16, 0.5, nil);
+  Result := FStream.SaveToFile(Fn, oemVBR, channels, Frequency, 128000, 16, 0.5, nil);
 end;
 
 function TOALOpusDataRecorder.SaveToStream(Str : TStream) : Boolean;

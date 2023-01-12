@@ -16,7 +16,7 @@ unit OGLOpusWrapper;
 interface
 
 uses
-  Classes, SysUtils, libOpus_dynlite, OGLOGGWrapper;
+  Classes, SysUtils, libOpus_dynlite, OGLOGGWrapper, OGLFastList;
 
 type
 
@@ -53,6 +53,20 @@ type
                   apicBCF, apicIllustration, apicBandLogo, apicPublisherLogo);
 
   TOpusPicFormat = (opfUnknown, opfURL, opfJPEG, opfPNG, opfGIF);
+
+  TOpusEncSignal = (oesAuto, oesVoice, oesMusic);
+  TOpusEncApp = (oeaVOIP, oeaAudio, oeaLowDelay);
+  TOpusFrameSize = (ofs_2_5ms, ofs_5ms, ofs_10ms, ofs_20ms, ofs_40ms,
+                    ofs_60ms, ofs_80ms, ofs_100ms, ofs_120ms, ofs_Error);
+  TOpusBandWidth = (obwError, obwAuto, obwNarrowBand, obwMediumBand,
+                              obwWideBand, obwSuperWideBand, obwFullBand);
+
+  OpusPacket = record
+    data : pcuchar;
+    len  : integer;
+  end;
+
+  pOpusPacket = ^OpusPacket;
 
   { IOpusEncComment }
 
@@ -100,6 +114,114 @@ type
   function MappingFamily : Integer;
   function StreamCount  : Integer;
   function CoupledCount : Integer;
+  end;
+
+  IOpusEncoderDecoder = interface(IUnknown)
+  ['{85E2202D-BBF3-4CE7-918D-A7FD2DE398BC}']
+  function Frequency : Cardinal;
+  function Channels : Cardinal;
+
+  function FrameSizeToBytes(fSz : TOpusFrameSize; isfloat : Boolean) : Integer;
+  function FrameSizeToSamples(fSz : TOpusFrameSize) : Integer;
+  function SamplesToFrameSize(fSamples : Integer) : TOpusFrameSize;
+  function SamplesToBytes(fSamples : Integer; isfloat : Boolean) : Integer;
+  function BytesToFrameSize(fBytes : Integer; isfloat : Boolean) : TOpusFrameSize;
+  function BytesToSamples(fBytes : Integer; isfloat : Boolean) : Integer;
+  end;
+
+  { IOpusEncoder }
+
+  IOpusEncoder = interface(IOpusEncoderDecoder)
+  ['{673D4CDC-E222-4961-BE78-C002538D5597}']
+  function Ref : pOpusEncoder;
+
+  procedure Init(afreq : Cardinal; achannels : Cardinal; aApp : TOpusEncApp);
+  procedure Done;
+
+  function FinalRange : Integer;
+
+  function EncodeFrameInt16(Buffer : Pointer; Fsz : TOpusFrameSize;
+                            Data : Pointer; MaxDataSz : Integer) : Integer;
+  function EncodeFrameFloat(Buffer : Pointer; Fsz : TOpusFrameSize;
+                            Data : Pointer; MaxDataSz : Integer) : Integer;
+
+  procedure SetBitrate(bitrate : Integer);
+  procedure SetBandwidth(bandwidth : Integer);
+  procedure SetComplexity(complex : Integer);
+  procedure SetSignal(sig : TOpusEncSignal);
+  procedure SetApplication(app : TOpusEncApp);
+  procedure SetMode(mode : TOGGSoundEncoderMode);
+  end;
+
+  { IOpusRepacketizer }
+
+  IOpusRepacketizer = interface(IUnknown)
+  ['{74DD0896-DAC7-4052-9595-B4F638625F0D}']
+  function Ref : pOpusRepacketizer;
+
+  procedure Init;
+  procedure Done;
+
+  procedure ReInit;
+  procedure Cat(aData : Pointer; aLen : Integer);
+  function OutRange(aBegin, aEnd : Integer;
+                            aBuffer : Pointer; aMaxLen : Integer) : integer;
+  function OutAll(aBuffer : Pointer; aMaxLen : Integer) : integer;
+
+  function NumberOfFrames : Integer;
+  end;
+
+  { IOpusFrames }
+
+  IOpusFrames = interface(IUnknown)
+  ['{283058E9-7B61-4DE1-A43E-8D56E1F8253C}']
+  procedure Init(aData : PPointer; aSizes : PInteger; aCnt : Integer);
+
+  function Data(aIndex : Integer) : Pointer;
+  function Size(aIndex : Integer) : Integer;
+  function Count : Integer;
+  end;
+
+  { IOpusPacket }
+
+  IOpusPacket = interface(IUnknown)
+  ['{10A5C4F2-2400-48C3-BCC9-477BB2293EE9}']
+  function Ref : pOpusPacket;
+
+  procedure Init(aData : Pointer; aLen : Integer);
+  procedure Done;
+
+  function Data : Pointer;
+  function Length : Integer;
+
+  function Parse(var aTOC: Byte; var aOffset: Integer) : IOpusFrames;
+  function Bandwidth: TOpusBandWidth;
+  function SamplesPerFrame(aFrequency: Cardinal): Integer;
+  function Channels: Integer;
+  function Frames: Integer;
+  function Samples(aFrequency: Cardinal): Integer;
+  end;
+
+  IOpusDecoder = interface(IOpusEncoderDecoder)
+  ['{4CF7B3A6-EF89-4D1B-AF71-415B45145E65}']
+  function Ref : pOpusDecoder;
+
+  procedure Init(afreq : Cardinal; achannels : Cardinal);
+  procedure Done;
+
+  function DecodeInt16(aBuffer : Pointer; aBuffSize : Integer;
+                        aDecodedData : Pointer;
+                        aDecSampCount : Integer;
+                        FECmode : Boolean) : Integer;
+  function DecodeFloat(aBuffer : Pointer; aBuffSize : Integer;
+                        aDecodedData : Pointer;
+                        aDecSampCount : Integer;
+                        FECmode : Boolean) : Integer;
+
+  procedure SetGain(aValue : Integer);
+  function Samples(aPacket : IOpusPacket) : Integer;
+  function Samples(aPacket : Pointer; aBytes : Integer) : Integer;
+  function LastPacketDuration : Integer;
   end;
 
   { TRefOpusDecHead }
@@ -184,6 +306,274 @@ type
     constructor Create;
     constructor Create(src : IOpusEncComment);
     destructor Destroy; override;
+  end;
+
+  { TOpusEncoderDecoder }
+
+  TOpusEncoderDecoder = class(TInterfacedObject, IOpusEncoderDecoder)
+  private
+    fFreq : Cardinal;
+    fChannels : Cardinal;
+  public
+    constructor Create(afreq : Cardinal; achannels : Cardinal);
+
+    function Frequency : Cardinal;
+    function Channels : Cardinal;
+
+    function FrameSizeToBytes(fSz : TOpusFrameSize; isfloat : Boolean) : Integer;
+    function FrameSizeToSamples(fSz : TOpusFrameSize) : Integer;
+    function SamplesToFrameSize(fSamples : Integer) : TOpusFrameSize;
+    function SamplesToBytes(fSamples : Integer; isfloat : Boolean) : Integer;
+    function BytesToFrameSize(fBytes : Integer; isfloat : Boolean) : TOpusFrameSize;
+    function BytesToSamples(fBytes : Integer; isfloat : Boolean) : Integer;
+  end;
+
+  { TOpusEncoder }
+
+  TOpusEncoder = class(TOpusEncoderDecoder, IOpusEncoder)
+  private
+    fRef : pOpusEncoder;
+    procedure Init(afreq : Cardinal; achannels : Cardinal; aApp : TOpusEncApp);
+    procedure Done;
+  public
+    function Ref : pOpusEncoder;
+
+    constructor Create(afreq : Cardinal; achannels : Cardinal; aApp : TOpusEncApp);
+    destructor Destroy; override;
+
+    function FinalRange : Integer;
+
+    function EncodeFrameInt16(Buffer : Pointer; Fsz : TOpusFrameSize;
+                              Data : Pointer; MaxDataSz : Integer) : Integer;
+    function EncodeFrameFloat(Buffer : Pointer; Fsz : TOpusFrameSize;
+                              Data : Pointer; MaxDataSz : Integer) : Integer;
+
+    procedure SetBitrate(bitrate : Integer);
+    procedure SetBandwidth(bandwidth : Integer);
+    procedure SetComplexity(complex : Integer);
+    procedure SetSignal(sig : TOpusEncSignal);
+    procedure SetApplication(app : TOpusEncApp);
+    procedure SetMode(mode : TOGGSoundEncoderMode);
+  end;
+
+  { TOpusRepacketizer }
+
+  TOpusRepacketizer = class(TInterfacedObject, IOpusRepacketizer)
+  private
+    fRef : pOpusRepacketizer;
+    procedure Init;
+    procedure Done;
+  public
+    function Ref : pOpusRepacketizer;
+
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure ReInit;
+    procedure Cat(aData : Pointer; aLen : Integer);
+    function OutRange(aBegin, aEnd : Integer;
+                              aBuffer : Pointer; aMaxLen : Integer) : integer;
+    function OutAll(aBuffer : Pointer; aMaxLen : Integer) : integer;
+
+    function NumberOfFrames : Integer;
+  end;
+
+  POpusPacketHeaderSimple = ^TOpusPacketHeaderSimple;
+  TOpusPacketHeaderSimple = packed record
+    len : Int32;
+  end;
+
+  POpusPacketHeaderRange = ^TOpusPacketHeaderRange;
+  TOpusPacketHeaderRange = packed record
+    len : Int32;
+    enc_range : Int32;
+  end;
+
+  POpusPacketHeaderState = ^TOpusPacketHeaderState;
+  TOpusPacketHeaderState = packed record
+    len : Int32;
+    channels : Byte;
+    freq_khz : Byte;
+  end;
+
+  TOpusPacketHeaderType = (ophCustom, ophSimple, ophFinalRange, ophState);
+
+  TOpusStreamEncoder = class;
+
+  TOpusPacketWriteHeader = procedure (Sender : TOpusStreamEncoder;
+                                      packetLen : Integer) of object;
+
+  { TOpusStreamEncoder }
+
+  TOpusStreamEncoder = class
+  private
+    fEncoder  : TOpusEncoder;
+    FOnPacketWriteHeader : TOpusPacketWriteHeader;
+    fPacketHeaderType : TOpusPacketHeaderType;
+    fRepacker : TOpusRepacketizer;
+    fRepackerDurationMs : Single;
+    fMaxPacketDurationMs : Single;
+    fBuffers : TFastPointerCollection;
+    fMaxDataBufferSize : Integer;
+    fLastDuration : TOpusFrameSize;
+
+    fStream   : TStream;
+
+    function WriteFrame(aPCM : Pointer; aCount : TOpusFrameSize; isfloat : Boolean
+      ) : Integer;
+    procedure PushPacket;
+    procedure WritePacketHeader(packetLen : Integer);
+    procedure SetOnPacketWriteHeader(AValue : TOpusPacketWriteHeader);
+  protected
+    procedure InternalWriteHeader(Sender : TOpusStreamEncoder;
+                                  packetLen : Integer);
+  public
+    constructor Create(aStream : TStream;
+                       aMode : TOGGSoundEncoderMode;
+                       aChannels : Cardinal;
+                       aFreq, aBitrate : Cardinal;
+                       aComplexity : Integer;
+                       aMaxPacketDurationMs : Integer);
+    destructor Destroy; override;
+
+    function WriteInt16(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
+    function WriteFloat(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
+    function WriteSamplesInt16(aPCM : Pointer; aCount : Integer) : Integer;
+    function WriteSamplesFloat(aPCM : Pointer; aCount : Integer) : Integer;
+    function WriteDataInt16(aPCM : Pointer; aBytes : Integer) : Integer;
+    function WriteDataFloat(aPCM : Pointer; aBytes : Integer) : Integer;
+    procedure Close;
+
+    property Encoder : TOpusEncoder read fEncoder;
+    property Stream  : TStream read fStream;
+    property PacketHeaderType : TOpusPacketHeaderType read
+                                fPacketHeaderType write fPacketHeaderType;
+    property OnPacketWriteHeader : TOpusPacketWriteHeader read FOnPacketWriteHeader write SetOnPacketWriteHeader;
+  end;
+
+  { TOpusDecoder }
+
+  TOpusDecoder = class(TOpusEncoderDecoder, IOpusDecoder)
+  private
+    fRef : pOpusDecoder;
+
+    procedure Init(afreq : Cardinal; achannels : Cardinal);
+    procedure Done;
+  public
+    function Ref : pOpusDecoder;
+
+    constructor Create(afreq : Cardinal; achannels : Cardinal);
+    destructor Destroy; override;
+
+    function DecodeInt16(aBuffer : Pointer; aBuffSize : Integer;
+                         aDecodedData : Pointer;
+                         aDecSampCount : Integer;
+                         FECmode : Boolean) : Integer;
+    function DecodeFloat(aBuffer : Pointer; aBuffSize : Integer;
+                         aDecodedData : Pointer;
+                         aDecSampCount : Integer;
+                         FECmode : Boolean) : Integer;
+
+    procedure SetGain(aValue : Integer);
+    function Samples(aPacket : IOpusPacket) : Integer; overload;
+    function Samples(aPacket : Pointer; aBytes : Integer) : Integer; overload;
+    function LastPacketDuration : Integer;
+  end;
+
+  TOpusStreamDecoder = class;
+
+  TOpusPacketReadHeader = function (Sender : TOpusStreamDecoder) : Integer of object;
+
+  { TOpusDecodedPacket }
+
+  TOpusDecodedPacket = class
+  private
+    fData : Pointer;
+    fLength : Integer;
+  public
+    constructor Create(aLength : Integer);
+    destructor Destroy; override;
+
+    procedure UpdateLength(newLen : Integer);
+
+    function Read(aDest : Pointer; offset, aSz : Integer) : Integer;
+
+    property Length : Integer read FLength;
+    property Data : Pointer read FData;
+  end;
+
+  { TOpusStreamDecoder }
+
+  TOpusStreamDecoder = class
+  private
+    fDecoder  : TOpusDecoder;
+    FOnPacketReadHeader : TOpusPacketReadHeader;
+    fPacketHeaderType : TOpusPacketHeaderType;
+
+    fPacketHeader : Pointer;
+    fPacketHeaderSize : Integer;
+    fPacket       : Pointer;
+    fPacketSize   : Integer;
+    fStream       : TStream;
+
+    fDecodedData  : TOpusDecodedPacket;
+    fDecodedOffset: Integer;
+
+    procedure ReallocHeader;
+    procedure ReallocPacket;
+    procedure SetOnPacketReadHeader(AValue : TOpusPacketReadHeader);
+    procedure SetPacketHeaderType(AValue : TOpusPacketHeaderType);
+    function ReadByteDataRaw(aPCM : Pointer; aSize : Integer; isfloat : Boolean) : integer;
+    function PopNewPacket(isfloat : Boolean) : Integer;
+  protected
+    function InternalGetPacketHeader(Sender : TOpusStreamDecoder) : Integer;
+  public
+    constructor Create(aStream : TStream;
+                       aFreq : Cardinal;
+                       aChannels : Cardinal);
+    destructor Destroy; override;
+
+    function ReadNextPacket(isfloat : Boolean) : Integer;
+    procedure ReadPacketHeader;
+
+    function ReadInt16(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
+    function ReadFloat(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
+    function ReadSamplesInt16(aPCM : Pointer; aCount : Integer) : Integer;
+    function ReadSamplesFloat(aPCM : Pointer; aCount : Integer) : Integer;
+    function ReadDataInt16(aPCM : Pointer; aBytes : Integer) : Integer;
+    function ReadDataFloat(aPCM : Pointer; aBytes : Integer) : Integer;
+
+    property Decoder : TOpusDecoder read fDecoder;
+    property Header  : Pointer read fPacketHeader;
+    property Stream  : TStream read fStream;
+    property PacketSize : Integer read fPacketSize write fPacketSize;
+    property PacketData : Pointer read fPacket;
+    property PacketHeaderType : TOpusPacketHeaderType read
+                                fPacketHeaderType write SetPacketHeaderType;
+    property OnPacketReadHeader : TOpusPacketReadHeader read
+                                FOnPacketReadHeader write SetOnPacketReadHeader;
+  end;
+
+  OpusFrames = Array [0..47] of Pointer;
+  OpusFrameSizes = Array [0..47] of Integer;
+  pOpusFrames = ^OpusFrames;
+  pOpusFrameSizes = ^OpusFrameSizes;
+
+  { TOpusFrames }
+
+  TOpusFrames = class(TInterfacedObject, IOpusFrames)
+  private
+    fFrames : pOpusFrames;
+    fSizes  : pOpusFrameSizes;
+    fCount  : Integer;
+
+    procedure Init(aData : PPointer; aSizes : PInteger; aCnt : Integer);
+  public
+    constructor Create(aData : PPointer; aSizes : PInteger; aCnt : Integer);
+
+    function Data(aIndex : Integer) : Pointer;
+    function Size(aIndex : Integer) : Integer;
+    function Count : Integer;
   end;
 
   { TOpusOggEncoder }
@@ -310,6 +700,17 @@ type
   end;
 
   TOpus = class
+  private
+    class function NativeFrameSizeToEnum(fz : Integer) : TOpusFrameSize;
+    class function EnumToNativeFrameSize(fz : TOpusFrameSize) : Integer;
+    class function NativeBandWidthToEnum(fz : Integer) : TOpusBandWidth;
+    class function EnumToNativeBandWidth(fz : TOpusBandWidth) : Integer;
+    class function NativeAppSpecToEnum(fz : Integer) : TOpusEncApp;
+    class function EnumToNativeAppSpec(fz : TOpusEncApp) : Integer;
+    class function NativeSigToEnum(fz : Integer) : TOpusEncSignal;
+    class function EnumToNativeSig(fz : TOpusEncSignal) : Integer;
+    class function TimeToLowFrameSize(dur : Single) : TOpusFrameSize;
+    class function TimeToHighFrameSize(dur : Single) : TOpusFrameSize;
   public
     class function NewEncComment : IOpusEncComment; overload;
     class function NewEncComment(src : IOpusEncComment) : IOpusEncComment; overload;
@@ -318,6 +719,30 @@ type
     class function RefDecComment(src : pOpusTags) : IOGGComment;
     class function RefDecHead(src : pOpusHead) : IOpusDecHead;
     //class function NewDecPicture : IOpusDecPicture;
+
+    class function HighFrameSizeInt16(aFreq, aChannels : Cardinal;
+                   aBytes : Integer) : TOpusFrameSize;
+    class function HighFrameSizeFloat(aFreq, aChannels : Cardinal;
+                   aBytes : Integer) : TOpusFrameSize;
+    class function LowFrameSizeInt16(aFreq, aChannels : Cardinal;
+                   aBytes : Integer) : TOpusFrameSize;
+    class function LowFrameSizeFloat(aFreq, aChannels : Cardinal;
+                   aBytes : Integer) : TOpusFrameSize;
+    class function HighFrameSizeSamples(aFreq, aChannels : Cardinal;
+                   aSamples : Integer) : TOpusFrameSize;
+    class function LowFrameSizeSamples(aFreq, aChannels : Cardinal;
+                   aSamples : Integer) : TOpusFrameSize;
+    class function MinBufferSizeInt16(aFreq, aChannels : Cardinal;
+                   aFs : TOpusFrameSize) : Integer; overload;
+    class function MinBufferSizeFloat(aFreq, aChannels : Cardinal;
+                   aFs : TOpusFrameSize) : Integer; overload;
+    class function MinBufferSizeInt16(aFreq, aChannels : Cardinal;
+                   aDuration : Single) : Integer; overload;
+    class function MinBufferSizeFloat(aFreq, aChannels : Cardinal;
+                   aDuration : Single) : Integer; overload;
+    class function SamplesCount(aFreq : Cardinal; aFs : TOpusFrameSize) : Integer;
+    class function FrameSizeToTime(fz : TOpusFrameSize) : Single;
+
     class function NewStreamingEncoder(aStream : TStream;
                        aMode : TOGGSoundEncoderMode;
                        aChannels : Cardinal;
@@ -326,19 +751,37 @@ type
                        aComments : IOGGComment) : TOpusOggEncoder;
     class function NewStreamingDecoder(aStream : TStream) : TOpusOggDecoder;
 
+    class procedure PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
+                                      aChannels : Cardinal);
+
     class function OpusLibsLoad(const aOpusLibs : array of String) : Boolean;
     class function OpusLibsLoadDefault : Boolean;
     class function IsOpusLibsLoaded : Boolean;
     class function OpusLibsUnLoad : Boolean;
   end;
 
-  EOpus = class(Exception);
+  { EOpus }
+
+  EOpus = class(Exception)
+  public
+    constructor Create(aError : Integer); overload;
+  end;
 
 implementation
 
 uses ctypes;
 
 const cOpusError = 'Opus error %d';
+      cOpusFullError = 'Opus error (%d) : %s';
+
+      cesOPUS_OK               = 'No error';
+      cesOPUS_BAD_ARG          = 'One or more invalid/out of range arguments';
+      cesOPUS_BUFFER_TOO_SMALL = 'Not enough bytes allocated in the buffer';
+      cesOPUS_INTERNAL_ERROR   = 'An internal error was detected';
+      cesOPUS_INVALID_PACKET   = 'The compressed data passed is corrupted';
+      cesOPUS_UNIMPLEMENTED    = 'Invalid/unsupported request number';
+      cesOPUS_INVALID_STATE    = 'An encoder or decoder structure is invalid or already freed';
+      cesOPUS_ALLOC_FAIL       = 'Memory allocation has failed';
 
 function ope_write(user_data : pointer; const ptr : pcuchar; len : opus_int32) : integer; cdecl;
 begin
@@ -368,6 +811,840 @@ end;
 function opd_close_func({%H-}_stream : pointer):integer; cdecl;
 begin
   result := 0;
+end;
+
+{ TOpusEncoderDecoder }
+
+constructor TOpusEncoderDecoder.Create(afreq : Cardinal; achannels : Cardinal);
+begin
+  fFreq := afreq;
+  fChannels := achannels;
+end;
+
+function TOpusEncoderDecoder.Frequency : Cardinal;
+begin
+  Result := fFreq;
+end;
+
+function TOpusEncoderDecoder.Channels : Cardinal;
+begin
+  Result := fChannels;
+end;
+
+function TOpusEncoderDecoder.FrameSizeToBytes(fSz : TOpusFrameSize;
+  isfloat : Boolean) : Integer;
+begin
+  if isfloat then
+    Result := TOpus.MinBufferSizeFloat(fFreq, fChannels, fSz)
+  else
+    Result := TOpus.MinBufferSizeInt16(fFreq, fChannels, fSz);
+end;
+
+function TOpusEncoderDecoder.FrameSizeToSamples(fSz : TOpusFrameSize) : Integer;
+begin
+  Result := Round(TOpus.FrameSizeToTime(fSz) / 1000.0 * fFreq);
+end;
+
+function TOpusEncoderDecoder.SamplesToFrameSize(fSamples : Integer
+  ) : TOpusFrameSize;
+begin
+  Result := TOpus.LowFrameSizeSamples(fFreq, fChannels, fSamples);
+end;
+
+function TOpusEncoderDecoder.SamplesToBytes(fSamples : Integer;
+  isfloat : Boolean) : Integer;
+begin
+  if isfloat then
+    Result := fSamples * fChannels * sizeof(cfloat)
+  else
+    Result := fSamples * fChannels * sizeof(cint16);
+end;
+
+function TOpusEncoderDecoder.BytesToFrameSize(fBytes : Integer;
+  isfloat : Boolean) : TOpusFrameSize;
+begin
+  if isfloat then
+    Result := TOpus.LowFrameSizeFloat(fFreq, fChannels, fBytes)
+  else
+    Result := TOpus.LowFrameSizeInt16(fFreq, fChannels, fBytes);
+end;
+
+function TOpusEncoderDecoder.BytesToSamples(fBytes : Integer; isfloat : Boolean
+  ) : Integer;
+begin
+  if isfloat then
+    Result := fBytes div fChannels div sizeof(cfloat)
+  else
+    Result := fBytes div fChannels div sizeof(cint16);
+end;
+
+{ TOpusDecodedPacket }
+
+constructor TOpusDecodedPacket.Create(aLength : Integer);
+begin
+  fData := GetMem(aLength);
+  fLength := aLength;
+end;
+
+destructor TOpusDecodedPacket.Destroy;
+begin
+  FreeMem(fData);
+  inherited Destroy;
+end;
+
+procedure TOpusDecodedPacket.UpdateLength(newLen : Integer);
+begin
+  fLength := newLen;
+end;
+
+function TOpusDecodedPacket.Read(aDest : Pointer; offset, aSz : Integer) : Integer;
+begin
+  if (aSz + offset) > fLength then
+    Result := fLength - offset else
+    Result := aSz;
+  Move(PByte(fData)[offset], aDest^, Result);
+end;
+
+{ TOpusDecoder }
+
+procedure TOpusDecoder.Init(afreq : Cardinal; achannels : Cardinal);
+var
+  cError : Integer;
+begin
+  fRef := opus_decoder_create(afreq, achannels, @cError);
+  if cError <> 0 then
+    raise EOpus.Create(cError);
+end;
+
+procedure TOpusDecoder.Done;
+begin
+  if Assigned(fRef) then
+  begin
+    opus_decoder_destroy(fRef);
+    fRef := nil;
+  end;
+end;
+
+function TOpusDecoder.Ref : pOpusDecoder;
+begin
+  Result := fRef;
+end;
+
+constructor TOpusDecoder.Create(afreq : Cardinal; achannels : Cardinal);
+begin
+  inherited Create(afreq, achannels);
+  Init(afreq, achannels);
+end;
+
+destructor TOpusDecoder.Destroy;
+begin
+  Done;
+  inherited Destroy;
+end;
+
+function TOpusDecoder.DecodeInt16(aBuffer : Pointer; aBuffSize : Integer;
+  aDecodedData : Pointer; aDecSampCount : Integer; FECmode : Boolean) : Integer;
+begin
+  Result := opus_decode(fRef, aBuffer, aBuffSize,
+                              aDecodedData, aDecSampCount, Integer(FECmode));
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+function TOpusDecoder.DecodeFloat(aBuffer : Pointer; aBuffSize : Integer;
+  aDecodedData : Pointer; aDecSampCount : Integer; FECmode : Boolean) : Integer;
+begin
+  Result := opus_decode_float(fRef, aBuffer, aBuffSize,
+                              aDecodedData, aDecSampCount, Integer(FECmode));
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+procedure TOpusDecoder.SetGain(aValue : Integer);
+begin
+  opus_decoder_ctl_set_gain(fRef, aValue);
+end;
+
+function TOpusDecoder.Samples(aPacket : IOpusPacket) : Integer;
+begin
+  Result := opus_decoder_get_nb_samples(fRef, aPacket.Data, aPacket.Length);
+end;
+
+function TOpusDecoder.Samples(aPacket : Pointer; aBytes : Integer) : Integer;
+begin
+  Result := opus_decoder_get_nb_samples(fRef, aPacket, aBytes);
+end;
+
+function TOpusDecoder.LastPacketDuration : Integer;
+begin
+  opus_decoder_ctl_get_last_packet_duration(fRef, @Result);
+end;
+
+{ TOpusStreamDecoder }
+
+procedure TOpusStreamDecoder.ReallocHeader;
+begin
+  if Assigned(fPacketHeader) then
+    FreeMemAndNil(fPacketHeader);
+  if fPacketHeaderSize > 0 then
+    fPacketHeader := GetMem(fPacketHeaderSize);
+end;
+
+procedure TOpusStreamDecoder.ReallocPacket;
+begin
+  if Assigned(fPacket) then
+    FreeMemAndNil(fPacket);
+  if fPacketSize > 0 then
+    fPacket := GetMem(fPacketSize);
+end;
+
+function TOpusStreamDecoder.ReadNextPacket(isfloat : Boolean) : Integer;
+var
+  samples : integer;
+  decoded_max_size : integer;
+begin
+  if Assigned(fPacket) and (fPacketSize > 0) then
+  begin
+    Result := fStream.Read(fPacket^, fPacketSize);
+
+    if Result > 0 then
+    begin
+      samples := fDecoder.Samples(fPacket, Result);
+
+      if samples > 0 then
+      begin
+        decoded_max_size := samples * fDecoder.Channels;
+        if isfloat then
+          decoded_max_size := decoded_max_size * 4
+        else
+          decoded_max_size := decoded_max_size * 2;
+
+        if Assigned(fDecodedData) then fDecodedData.Free;
+        fDecodedData := TOpusDecodedPacket.Create(decoded_max_size);
+
+        try
+          if isfloat then
+            Result := fDecoder.DecodeFloat(fPacket, Result, fDecodedData.Data, samples, false) else
+            Result := fDecoder.DecodeInt16(fPacket, Result, fDecodedData.Data, samples, false);
+
+          decoded_max_size := Result * fDecoder.Channels;
+          if isfloat then
+            decoded_max_size := decoded_max_size * 4
+          else
+            decoded_max_size := decoded_max_size * 2;
+
+          fDecodedData.UpdateLength(decoded_max_size);
+        except
+          on e : EOpus do FreeAndNil(fDecodedData);
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure TOpusStreamDecoder.ReadPacketHeader;
+begin
+  if Assigned(FOnPacketReadHeader) then
+  begin
+    fPacketSize := FOnPacketReadHeader(Self);
+    ReallocPacket;
+  end;
+end;
+
+procedure TOpusStreamDecoder.SetOnPacketReadHeader(
+  AValue : TOpusPacketReadHeader);
+begin
+  if FOnPacketReadHeader = AValue then Exit;
+  FOnPacketReadHeader := AValue;
+  fPacketHeaderType := ophCustom;
+end;
+
+procedure TOpusStreamDecoder.SetPacketHeaderType(AValue : TOpusPacketHeaderType
+  );
+begin
+  if fPacketHeaderType = AValue then Exit;
+  fPacketHeaderType := AValue;
+  case fPacketHeaderType of
+    ophFinalRange : begin
+      fPacketHeaderSize := Sizeof(TOpusPacketHeaderRange);
+    end;
+    ophSimple : begin
+      fPacketHeaderSize := Sizeof(TOpusPacketHeaderSimple);
+    end;
+    ophState : begin
+      fPacketHeaderSize := Sizeof(TOpusPacketHeaderState);
+    end;
+  else
+    fPacketHeaderSize := 0;
+  end;
+  ReallocHeader;
+end;
+
+function TOpusStreamDecoder.ReadByteDataRaw(aPCM : Pointer; aSize : Integer;
+  isfloat : Boolean) : integer;
+var rsz : integer;
+begin
+  Result := 0;
+  while Result < aSize do
+  begin
+    if Assigned(fDecodedData) then
+    begin
+      rsz := fDecodedData.Read(aPCM, fDecodedOffset, aSize - Result);
+      if rsz < 0 then
+      begin
+        Result := -1;
+        Break;
+      end;
+      Inc(fDecodedOffset, rsz);
+      Inc(Result, rsz);
+      if (fDecodedOffset >= fDecodedData.Length) then
+      begin
+        FreeAndNil(fDecodedData);
+        fDecodedOffset := 0;
+        try
+          if PopNewPacket(isfloat) <= 0 then
+            Break;
+        except
+          on e : Exception do Result := -1;
+        end;
+      end;
+    end else
+    begin
+      try
+        if PopNewPacket(isfloat) <= 0 then
+          Break;
+      except
+        on e : Exception do Result := -1;
+      end;
+    end;
+  end;
+end;
+
+function TOpusStreamDecoder.PopNewPacket(isfloat : Boolean) : Integer;
+begin
+  ReadPacketHeader;
+  Result := ReadNextPacket(isfloat);
+end;
+
+function TOpusStreamDecoder.InternalGetPacketHeader(Sender : TOpusStreamDecoder
+  ) : Integer;
+begin
+  if Assigned(fPacketHeader) and (fPacketHeaderSize > 0) then
+    fStream.Read(fPacketHeader^, fPacketHeaderSize);
+
+  case fPacketHeaderType of
+    ophFinalRange : begin
+      Result := POpusPacketHeaderRange(fPacketHeader)^.len;
+    end;
+    ophSimple : begin
+      Result := POpusPacketHeaderSimple(fPacketHeader)^.len;
+    end;
+    ophState : begin
+      Result := POpusPacketHeaderState(fPacketHeader)^.len;
+    end;
+  else
+    Result := 0;
+  end;
+end;
+
+constructor TOpusStreamDecoder.Create(aStream : TStream; aFreq : Cardinal;
+  aChannels : Cardinal);
+begin
+  fPacket := nil;
+  fPacketHeader := nil;
+
+  fStream := aStream;;
+
+  fDecoder := TOpusDecoder.Create(aFreq, aChannels);
+
+  fDecodedData := nil;
+  fDecodedOffset := 0;
+
+  FOnPacketReadHeader := @InternalGetPacketHeader;
+  PacketHeaderType := ophState;
+end;
+
+destructor TOpusStreamDecoder.Destroy;
+begin
+  if Assigned(fDecoder) then
+    FreeAndNil(fDecoder);
+  if Assigned(fPacketHeader) then
+    FreeMemAndNil(fPacketHeader);
+  if Assigned(fPacket) then
+    FreeMemAndNil(fPacket);
+  if Assigned(fDecodedData) then
+    FreeAndNil(fDecodedData);
+  inherited Destroy;
+end;
+
+function TOpusStreamDecoder.ReadInt16(aPCM : Pointer; aCount : TOpusFrameSize
+  ) : Integer;
+begin
+  Result := ReadDataInt16(aPCM, fDecoder.FrameSizeToBytes(aCount, false));
+end;
+
+function TOpusStreamDecoder.ReadFloat(aPCM : Pointer; aCount : TOpusFrameSize
+  ) : Integer;
+begin
+  Result := ReadDataFloat(aPCM, fDecoder.FrameSizeToBytes(aCount, true));
+end;
+
+function TOpusStreamDecoder.ReadSamplesInt16(aPCM : Pointer; aCount : Integer
+  ) : Integer;
+begin
+  Result := ReadDataInt16(aPCM, fDecoder.SamplesToBytes(aCount, false));
+end;
+
+function TOpusStreamDecoder.ReadSamplesFloat(aPCM : Pointer; aCount : Integer
+  ) : Integer;
+begin
+  Result := ReadDataFloat(aPCM,fDecoder.SamplesToBytes(aCount, true));
+end;
+
+function TOpusStreamDecoder.ReadDataInt16(aPCM : Pointer; aBytes : Integer
+  ) : Integer;
+begin
+  Result := fDecoder.BytesToSamples(ReadByteDataRaw(aPCM, aBytes, false), false);
+end;
+
+function TOpusStreamDecoder.ReadDataFloat(aPCM : Pointer; aBytes : Integer
+  ) : Integer;
+begin
+  Result := fDecoder.BytesToSamples(ReadByteDataRaw(aPCM, aBytes, true), true);
+end;
+
+{ TOpusStreamEncoder }
+
+function TOpusStreamEncoder.WriteFrame(aPCM : Pointer;
+  aCount : TOpusFrameSize; isfloat : Boolean) : Integer;
+var
+  len, max_len : Integer;
+  dur : Single;
+  buf : Pointer;
+begin
+  if aCount = ofs_Error then Exit(0);
+
+  dur := TOpus.FrameSizeToTime(aCount);
+  if (Round(dur + fRepackerDurationMs) > fMaxPacketDurationMs) or
+    (fLastDuration <> aCount) then
+  begin
+    PushPacket;
+    fLastDuration := aCount;
+  end;
+
+  max_len := fEncoder.FrameSizeToBytes(aCount, isfloat);
+  buf := GetMem(max_len);
+  fBuffers.Add(buf);
+
+  if isfloat then
+    len := fEncoder.EncodeFrameFloat(aPCM, aCount, buf, max_len)
+  else
+    len := fEncoder.EncodeFrameInt16(aPCM, aCount, buf, max_len);
+
+  fRepacker.Cat(buf, len);
+
+  fRepackerDurationMs := fRepackerDurationMs + dur;
+
+  Result := fEncoder.FrameSizeToSamples(aCount);
+end;
+
+procedure TOpusStreamEncoder.PushPacket;
+var
+  buf : Pointer;
+  len : integer;
+begin
+  if fBuffers.Count > 0 then
+  begin
+    buf := GetMem(fMaxDataBufferSize);
+    len := fRepacker.OutAll(buf, fMaxDataBufferSize);
+    fRepackerDurationMs := 0;
+
+    WritePacketHeader(len);
+    fStream.Write(buf^, len);
+
+    fRepacker.ReInit;
+
+    FreeMemAndNil(buf);
+
+    fBuffers.Clear;
+  end;
+end;
+
+procedure TOpusStreamEncoder.WritePacketHeader(packetLen : Integer);
+begin
+  if Assigned(FOnPacketWriteHeader) then
+    FOnPacketWriteHeader(Self, packetLen);
+end;
+
+procedure TOpusStreamEncoder.SetOnPacketWriteHeader(
+  AValue : TOpusPacketWriteHeader);
+begin
+  if FOnPacketWriteHeader = AValue then Exit;
+  FOnPacketWriteHeader := AValue;
+  fPacketHeaderType := ophCustom;
+end;
+
+procedure TOpusStreamEncoder.InternalWriteHeader(Sender : TOpusStreamEncoder;
+  packetLen : Integer);
+var
+  header : Pointer;
+  header_size : Integer;
+begin
+  case fPacketHeaderType of
+    ophFinalRange : begin
+      header_size := Sizeof(TOpusPacketHeaderRange);
+      header := GetMem(header_size);
+      with POpusPacketHeaderRange(header)^ do
+      begin
+        len := packetLen;
+        enc_range := fEncoder.FinalRange;
+      end;
+    end;
+    ophSimple : begin
+      header_size := Sizeof(TOpusPacketHeaderSimple);
+      header := GetMem(header_size);
+      POpusPacketHeaderSimple(header)^.len := packetLen;
+    end;
+    ophState : begin
+      header_size := Sizeof(TOpusPacketHeaderState);
+      header := GetMem(header_size);
+      with POpusPacketHeaderState(header)^ do
+      begin
+        len := packetLen;
+        channels := fEncoder.Channels;
+        freq_khz := fEncoder.Frequency div 1000;
+      end;
+    end;
+    else
+    begin
+      header := nil;
+      header_size := 0;
+    end;
+  end;
+  if header_size > 0 then
+  begin
+    fStream.Write(header^, header_size);
+    FreeMemAndNil(header);
+  end;
+end;
+
+constructor TOpusStreamEncoder.Create(aStream : TStream;
+  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
+  aBitrate : Cardinal; aComplexity : Integer;
+  aMaxPacketDurationMs : Integer);
+begin
+  fStream := aStream;
+
+  fEncoder := TOpusEncoder.Create(aFreq, aChannels, oeaAudio);
+  fEncoder.SetBitrate(aBitrate);
+  fEncoder.SetMode(aMode);
+  fEncoder.SetComplexity(aComplexity);
+
+  fRepacker := TOpusRepacketizer.Create;
+  fRepackerDurationMs := 0;
+  fMaxPacketDurationMs := aMaxPacketDurationMs;
+
+  fMaxDataBufferSize := TOpus.MinBufferSizeFloat(aFreq, aChannels,
+                                                 Single(aMaxPacketDurationMs));
+  fBuffers := TFastPointerCollection.Create;
+
+  FOnPacketWriteHeader := @InternalWriteHeader;
+  fPacketHeaderType := ophState;
+  fLastDuration := ofs_Error;
+end;
+
+destructor TOpusStreamEncoder.Destroy;
+begin
+  if Assigned(fEncoder) then
+    FreeAndNil(fEncoder);
+  if Assigned(fRepacker) then
+    FreeAndNil(fRepacker);
+  if Assigned(fBuffers) then
+    FreeAndNil(fBuffers);
+  inherited Destroy;
+end;
+
+function TOpusStreamEncoder.WriteInt16(aPCM : Pointer; aCount : TOpusFrameSize
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, aCount, false);
+end;
+
+function TOpusStreamEncoder.WriteFloat(aPCM : Pointer; aCount : TOpusFrameSize
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, aCount, true);
+end;
+
+function TOpusStreamEncoder.WriteSamplesInt16(aPCM : Pointer; aCount : Integer
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, fEncoder.SamplesToFrameSize(aCount), false);
+end;
+
+function TOpusStreamEncoder.WriteSamplesFloat(aPCM : Pointer; aCount : Integer
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, fEncoder.SamplesToFrameSize(aCount), true);
+end;
+
+function TOpusStreamEncoder.WriteDataInt16(aPCM : Pointer; aBytes : Integer
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, fEncoder.BytesToFrameSize(aBytes, false), false);
+end;
+
+function TOpusStreamEncoder.WriteDataFloat(aPCM : Pointer; aBytes : Integer
+  ) : Integer;
+begin
+  Result := WriteFrame(aPCM, fEncoder.BytesToFrameSize(aBytes, true), true);
+end;
+
+procedure TOpusStreamEncoder.Close;
+begin
+  PushPacket;
+end;
+
+{ TOpusFrames }
+
+procedure TOpusFrames.Init(aData : PPointer; aSizes : PInteger; aCnt : Integer);
+begin
+  fFrames := pOpusFrames(aData);
+  fSizes := pOpusFrameSizes(aSizes);
+  fCount := aCnt;
+end;
+
+constructor TOpusFrames.Create(aData : PPointer; aSizes : PInteger;
+  aCnt : Integer);
+begin
+  Init(aData, aSizes, aCnt);
+end;
+
+function TOpusFrames.Data(aIndex : Integer) : Pointer;
+begin
+  Result := fFrames^[aIndex];
+end;
+
+function TOpusFrames.Size(aIndex : Integer) : Integer;
+begin
+  Result := fSizes^[aIndex];
+end;
+
+function TOpusFrames.Count : Integer;
+begin
+  Result := fCount;
+end;
+
+{ TOpusRepacketizer }
+
+procedure TOpusRepacketizer.Init;
+begin
+  fRef := opus_repacketizer_create;
+end;
+
+procedure TOpusRepacketizer.Done;
+begin
+  if assigned(fRef) then
+    opus_repacketizer_destroy(fRef);
+end;
+
+function TOpusRepacketizer.Ref : pOpusRepacketizer;
+begin
+  Result := fRef;
+end;
+
+constructor TOpusRepacketizer.Create;
+begin
+  Init;
+end;
+
+destructor TOpusRepacketizer.Destroy;
+begin
+  Done;
+  inherited Destroy;
+end;
+
+procedure TOpusRepacketizer.ReInit;
+begin
+  if Assigned(fRef) then
+    fRef := opus_repacketizer_init(fRef) else
+    Init;
+end;
+
+procedure TOpusRepacketizer.Cat(aData : Pointer; aLen : Integer);
+var cRes : Integer;
+begin
+  cRes := opus_repacketizer_cat(fRef, aData, aLen);
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+function TOpusRepacketizer.OutRange(aBegin, aEnd : Integer; aBuffer : Pointer;
+  aMaxLen : Integer) : integer;
+begin
+  Result := opus_repacketizer_out_range(fRef, aBegin, aEnd, aBuffer, aMaxLen);
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+function TOpusRepacketizer.OutAll(aBuffer : Pointer; aMaxLen : Integer
+  ) : integer;
+begin
+  Result := opus_repacketizer_out(fRef, aBuffer, aMaxLen);
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+function TOpusRepacketizer.NumberOfFrames : Integer;
+begin
+  Result := opus_repacketizer_get_nb_frames(fRef);
+end;
+
+{ EOpus }
+
+constructor EOpus.Create(aError : Integer);
+var S : String;
+begin
+  if aError = OPUS_OK then
+    S := cesOPUS_OK else
+  if aError = OPUS_BAD_ARG then
+    S := cesOPUS_BAD_ARG else
+  if aError = OPUS_BUFFER_TOO_SMALL then
+    S := cesOPUS_BUFFER_TOO_SMALL else
+  if aError = OPUS_INTERNAL_ERROR then
+    S := cesOPUS_INTERNAL_ERROR else
+  if aError = OPUS_INVALID_PACKET then
+    S := cesOPUS_INVALID_PACKET else
+  if aError = OPUS_UNIMPLEMENTED then
+    S := cesOPUS_UNIMPLEMENTED else
+  if aError = OPUS_INVALID_STATE then
+    S := cesOPUS_INVALID_STATE else
+  if aError = OPUS_ALLOC_FAIL then
+    S := cesOPUS_ALLOC_FAIL else
+    S := '';
+  if Length(s) > 0 then
+    inherited CreateFmt(cOpusFullError, [aError, S]) else
+    inherited CreateFmt(cOpusError, [aError]);
+end;
+
+{ TOpusEncoder }
+
+procedure TOpusEncoder.Init(afreq : Cardinal; achannels : Cardinal;
+  aApp : TOpusEncApp);
+var
+  cError : Integer;
+begin
+  fFreq := afreq;
+  fChannels := achannels;
+  fRef := opus_encoder_create(afreq, achannels,
+                                     TOpus.EnumToNativeAppSpec(aApp), @cError);
+  if cError <> 0 then
+    raise EOpus.Create(cError);
+end;
+
+procedure TOpusEncoder.Done;
+begin
+  if Assigned(fRef) then
+    opus_encoder_destroy(fRef);
+end;
+
+function TOpusEncoder.Ref : pOpusEncoder;
+begin
+  Result := fRef;
+end;
+
+constructor TOpusEncoder.Create(afreq : Cardinal; achannels : Cardinal;
+  aApp : TOpusEncApp);
+begin
+  inherited Create(afreq, achannels);
+  Init(afreq, achannels, aApp);
+end;
+
+destructor TOpusEncoder.Destroy;
+begin
+  Done;
+  inherited Destroy;
+end;
+
+function TOpusEncoder.FinalRange : Integer;
+begin
+  Result := opus_encoder_ctl_get_final_range(fRef, @Result);
+end;
+
+function TOpusEncoder.EncodeFrameInt16(Buffer : Pointer; Fsz : TOpusFrameSize;
+  Data : Pointer; MaxDataSz : Integer) : Integer;
+begin
+  Result := opus_encode(fRef, Buffer, FrameSizeToSamples(fsz), Data, MaxDataSz);
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+function TOpusEncoder.EncodeFrameFloat(Buffer : Pointer; Fsz : TOpusFrameSize;
+  Data : Pointer; MaxDataSz : Integer) : Integer;
+begin
+  Result := opus_encode_float(fRef, Buffer, FrameSizeToSamples(fsz), Data, MaxDataSz);
+  if Result < 0 then
+    raise EOpus.Create(Result);
+end;
+
+procedure TOpusEncoder.SetBitrate(bitrate : Integer);
+var cRes : Integer;
+begin
+  cRes := opus_encoder_ctl_set_bitrate(fRef, bitrate);
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+procedure TOpusEncoder.SetBandwidth(bandwidth : Integer);
+var cRes : Integer;
+begin
+  cRes := opus_encoder_ctl_set_bandwidth(fRef, bandwidth);
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+procedure TOpusEncoder.SetComplexity(complex : Integer);
+var cRes : Integer;
+begin
+  cRes := opus_encoder_ctl_set_complexity(fRef, complex);
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+procedure TOpusEncoder.SetSignal(sig : TOpusEncSignal);
+var cRes : Integer;
+begin
+  cRes := opus_encoder_ctl_set_signal(fRef, TOpus.EnumToNativeSig(sig));
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+procedure TOpusEncoder.SetApplication(app : TOpusEncApp);
+var cRes : Integer;
+begin
+  cRes := opus_encoder_ctl_set_app(fRef, TOpus.EnumToNativeAppSpec(app));
+  if cRes < 0 then
+    raise EOpus.Create(cRes);
+end;
+
+procedure TOpusEncoder.SetMode(mode : TOGGSoundEncoderMode);
+var cRes : Integer;
+begin
+  case mode of
+    oemVBR : begin
+        cRes := opus_encoder_ctl_set_vbr(fRef, opus_int32(1));
+        if cRes < 0 then
+          raise EOpus.Create(cRes);
+        cRes := opus_encoder_ctl_set_vbr_constraint(fRef, opus_int32(0));
+        if cRes < 0 then
+          raise EOpus.Create(cRes);
+      end;
+    oemCBR : begin
+      cRes := opus_encoder_ctl_set_vbr(fRef, opus_int32(0));
+      if cRes < 0 then
+        raise EOpus.Create(cRes);
+    end;
+  end;
 end;
 
 { TUniqOpusDecHead }
@@ -480,7 +1757,7 @@ end;
 
 function TRefOpusDecHead.Frequency : Cardinal;
 begin
-  Result := fRef^.input_sample_rate;
+  Result := 48000; //possible issue, should be: fRef^.input_sample_rate;
 end;
 
 function TRefOpusDecHead.Gain : Integer;
@@ -568,7 +1845,7 @@ end;
 
 function TOpusOggDecoder.GetBitrate : Cardinal;
 begin
-  Result := op_bitrate(Self, -1);
+  Result := op_bitrate(fRef, -1);
 end;
 
 function TOpusOggDecoder.Ref : pOggOpusFile;
@@ -745,7 +2022,7 @@ var
   v : opus_int32;
 begin
   ope_encoder_ctl_get_bitrate(fRef, @v);
-  Result := v div 1000;
+  Result := v;
 end;
 
 function TOpusOggEncoder.GetQuality : Single;
@@ -771,7 +2048,7 @@ end;
 
 procedure TOpusOggEncoder.SetBitrate(AValue : Cardinal);
 begin
-  ope_encoder_ctl_set_bitrate(fRef, opus_int32(AValue * 1000));
+  ope_encoder_ctl_set_bitrate(fRef, opus_int32(AValue));
 end;
 
 procedure TOpusOggEncoder.SetMode(AValue : TOGGSoundEncoderMode);
@@ -953,6 +2230,268 @@ begin
   Result := TRefOpusDecHead.Create(src) as IOpusDecHead;
 end;
 
+class function TOpus.TimeToHighFrameSize(dur : Single) : TOpusFrameSize;
+begin
+  if dur > 120.0 then
+    Result := ofs_Error else
+  if dur > 100.0 then
+    Result := ofs_120ms else
+  if dur > 80.0 then
+    Result := ofs_100ms else
+  if dur > 60.0 then
+    Result := ofs_80ms else
+  if dur > 40.0 then
+    Result := ofs_60ms else
+  if dur > 20.0 then
+    Result := ofs_40ms else
+  if dur > 10.0 then
+    Result := ofs_20ms else
+  if dur > 5.0 then
+    Result := ofs_10ms else
+  if dur > 2.5 then
+    Result := ofs_5ms else
+    Result := ofs_2_5ms;
+end;
+
+class function TOpus.TimeToLowFrameSize(dur : Single) : TOpusFrameSize;
+begin
+  if dur >= 120.0 then
+    Result := ofs_120ms else
+  if dur >= 100.0 then
+    Result := ofs_100ms else
+  if dur >= 80.0 then
+    Result := ofs_80ms else
+  if dur >= 60.0 then
+    Result := ofs_60ms else
+  if dur >= 40.0 then
+    Result := ofs_40ms else
+  if dur >= 20.0 then
+    Result := ofs_20ms else
+  if dur >= 10.0 then
+    Result := ofs_10ms else
+  if dur >= 5.0 then
+    Result := ofs_5ms else
+  if dur >= 2.5 then
+    Result := ofs_2_5ms else
+    Result := ofs_Error;
+end;
+
+class function TOpus.FrameSizeToTime(fz : TOpusFrameSize) : Single;
+begin
+  case fz of
+    ofs_2_5ms : Result := 2.5;
+    ofs_5ms : Result := 5.0;
+    ofs_10ms : Result := 10.0;
+    ofs_20ms : Result := 20.0;
+    ofs_40ms : Result := 40.0;
+    ofs_60ms : Result := 60.0;
+    ofs_80ms : Result := 80.0;
+    ofs_100ms : Result := 100.0;
+    ofs_120ms : Result := 120.0;
+  else
+    Result := 0;
+  end;
+end;
+
+class function TOpus.NativeFrameSizeToEnum(fz : Integer) : TOpusFrameSize;
+begin
+  case fz of
+    OPUS_FRAMESIZE_2_5_MS : result := ofs_2_5ms;
+    OPUS_FRAMESIZE_5_MS : result :=   ofs_5ms;
+    OPUS_FRAMESIZE_10_MS : result :=  ofs_10ms;
+    OPUS_FRAMESIZE_20_MS : result :=  ofs_20ms;
+    OPUS_FRAMESIZE_40_MS : result :=  ofs_40ms;
+    OPUS_FRAMESIZE_60_MS : result :=  ofs_60ms;
+    OPUS_FRAMESIZE_80_MS : result :=  ofs_80ms;
+    OPUS_FRAMESIZE_100_MS : result := ofs_100ms;
+    OPUS_FRAMESIZE_120_MS : result := ofs_120ms;
+  else
+    result := ofs_Error;
+  end;
+end;
+
+class function TOpus.EnumToNativeFrameSize(fz : TOpusFrameSize) : Integer;
+begin
+  case fz of
+    ofs_2_5ms : result := OPUS_FRAMESIZE_2_5_MS;
+    ofs_5ms   : result :=   OPUS_FRAMESIZE_5_MS;
+    ofs_10ms  : result :=  OPUS_FRAMESIZE_10_MS;
+    ofs_20ms  : result :=  OPUS_FRAMESIZE_20_MS;
+    ofs_40ms  : result :=  OPUS_FRAMESIZE_40_MS;
+    ofs_60ms  : result :=  OPUS_FRAMESIZE_60_MS;
+    ofs_80ms  : result :=  OPUS_FRAMESIZE_80_MS;
+    ofs_100ms : result := OPUS_FRAMESIZE_100_MS;
+    ofs_120ms : result := OPUS_FRAMESIZE_120_MS;
+  else
+    result := OPUS_FRAMESIZE_ARG;
+  end;
+end;
+
+class function TOpus.NativeBandWidthToEnum(fz : Integer) : TOpusBandWidth;
+begin
+  case fz of
+    OPUS_BANDWIDTH_NARROWBAND : result := obwNarrowBand;
+    OPUS_BANDWIDTH_MEDIUMBAND : result := obwMediumBand;
+    OPUS_BANDWIDTH_WIDEBAND :   result := obwWideBand;
+    OPUS_BANDWIDTH_SUPERWIDEBAND : result := obwSuperWideBand;
+    OPUS_BANDWIDTH_FULLBAND : result :=  obwFullBand;
+    OPUS_AUTO               : Result := obwAuto;
+  else
+    Result := obwError;
+  end;
+end;
+
+class function TOpus.EnumToNativeBandWidth(fz : TOpusBandWidth) : Integer;
+begin
+  case fz of
+    obwNarrowBand : result := OPUS_BANDWIDTH_NARROWBAND;
+    obwMediumBand   : result := OPUS_BANDWIDTH_MEDIUMBAND;
+    obwWideBand  : result := OPUS_BANDWIDTH_WIDEBAND;
+    obwSuperWideBand  : result := OPUS_BANDWIDTH_SUPERWIDEBAND;
+    obwFullBand  : result := OPUS_BANDWIDTH_FULLBAND;
+  else
+    result := OPUS_AUTO;
+  end;
+end;
+
+class function TOpus.NativeAppSpecToEnum(fz : Integer) : TOpusEncApp;
+begin
+  case fz of
+    OPUS_APPLICATION_VOIP : result := oeaVOIP;
+    OPUS_APPLICATION_RESTRICTED_LOWDELAY : result := oeaLowDelay;
+  else
+    Result := oeaAudio;
+  end;
+end;
+
+class function TOpus.EnumToNativeAppSpec(fz : TOpusEncApp) : Integer;
+begin
+  case fz of
+    oeaAudio : result := OPUS_APPLICATION_AUDIO;
+    oeaVOIP   : result := OPUS_APPLICATION_VOIP;
+    oeaLowDelay  : result := OPUS_APPLICATION_RESTRICTED_LOWDELAY;
+  else
+    result := OPUS_APPLICATION_AUDIO;
+  end;
+end;
+
+class function TOpus.NativeSigToEnum(fz : Integer) : TOpusEncSignal;
+begin
+  case fz of
+    OPUS_SIGNAL_MUSIC : result := oesMusic;
+    OPUS_SIGNAL_VOICE : result := oesVoice;
+  else
+    result := oesAuto;
+  end;
+end;
+
+class function TOpus.EnumToNativeSig(fz : TOpusEncSignal) : Integer;
+begin
+  case fz of
+    oesMusic : result := OPUS_SIGNAL_MUSIC;
+    oesVoice : result := OPUS_SIGNAL_VOICE;
+  else
+    result := OPUS_AUTO;
+  end;
+end;
+
+class function TOpus.HighFrameSizeInt16(aFreq, aChannels : Cardinal;
+  aBytes : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aBytes) * 1000.0 / single(aChannels * aFreq * Sizeof(cint16));
+  Result := TimeToHighFrameSize(dur);
+end;
+
+class function TOpus.HighFrameSizeFloat(aFreq, aChannels : Cardinal;
+  aBytes : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aBytes) * 1000.0 / single(aChannels * aFreq * Sizeof(cfloat));
+  Result := TimeToHighFrameSize(dur);
+end;
+
+class function TOpus.LowFrameSizeInt16(aFreq, aChannels : Cardinal;
+  aBytes : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aBytes) * 1000.0 / single(aChannels * aFreq * Sizeof(cint16));
+  Result := TimeToLowFrameSize(dur);
+end;
+
+class function TOpus.LowFrameSizeFloat(aFreq, aChannels : Cardinal;
+  aBytes : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aBytes) * 1000.0 / single(aChannels * aFreq * Sizeof(cfloat));
+  Result := TimeToLowFrameSize(dur);
+end;
+
+class function TOpus.HighFrameSizeSamples(aFreq, aChannels : Cardinal;
+  aSamples : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aSamples) * 1000.0 / single(aChannels * aFreq);
+  Result := TimeToHighFrameSize(dur);
+end;
+
+class function TOpus.LowFrameSizeSamples(aFreq, aChannels : Cardinal;
+  aSamples : Integer) : TOpusFrameSize;
+var
+  dur : Single;
+begin
+  dur := single(aSamples) * 1000.0 / single(aChannels * aFreq);
+  Result := TimeToLowFrameSize(dur);
+end;
+
+class function TOpus.MinBufferSizeInt16(aFreq, aChannels : Cardinal;
+  aFs : TOpusFrameSize) : Integer;
+begin
+  Result := Round(FrameSizeToTime(aFs) / 1000.0 * aChannels * aFreq * Sizeof(cint16));
+end;
+
+class function TOpus.MinBufferSizeFloat(aFreq, aChannels : Cardinal;
+  aFs : TOpusFrameSize) : Integer;
+begin
+  Result := Round(FrameSizeToTime(aFs) / 1000.0 * aChannels * aFreq * Sizeof(cfloat));
+end;
+
+class function TOpus.MinBufferSizeInt16(aFreq, aChannels : Cardinal;
+  aDuration : Single) : Integer;
+begin
+  Result := Round(aDuration / 1000.0 * aChannels * aFreq * Sizeof(cint16));
+end;
+
+class function TOpus.MinBufferSizeFloat(aFreq, aChannels : Cardinal;
+  aDuration : Single) : Integer;
+begin
+  Result := Round(aDuration / 1000.0 * aChannels * aFreq * Sizeof(cfloat));
+end;
+
+class function TOpus.SamplesCount(aFreq : Cardinal; aFs : TOpusFrameSize
+  ) : Integer;
+begin
+  case aFs of
+    ofs_2_5ms : Result := 25;
+    ofs_5ms :   Result := 50;
+    ofs_10ms :  Result := 100;
+    ofs_20ms :  Result := 200;
+    ofs_40ms :  Result := 400;
+    ofs_60ms :  Result := 600;
+    ofs_80ms :  Result := 800;
+    ofs_100ms : Result := 1000;
+    ofs_120ms : Result := 1200;
+  else
+    Result := 0;
+  end;
+  Result := aFreq div 1000 * Result div 10;
+end;
+
 {class function TOpus.NewDecPicture : IOpusDecPicture;
 begin
   Result := TUniqOpusDecPicture.Create as IOpusDecPicture;
@@ -973,6 +2512,16 @@ end;
 class function TOpus.NewStreamingDecoder(aStream : TStream) : TOpusOggDecoder;
 begin
   Result := TOpusOggStreamingDecoder.Create(aStream);
+end;
+
+class procedure TOpus.PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
+  aChannels : Cardinal);
+var m : Pointer;
+begin
+  m := GetMem(aChannels * sizeof(cfloat));
+  FillByte(m^, aChannels * sizeof(cfloat), 0);
+  opus_pcm_soft_clip(aBuffer, aSamplesCount, aChannels, m);
+  Freemem(m);
 end;
 
 class function TOpus.OpusLibsLoad(const aOpusLibs : array of String

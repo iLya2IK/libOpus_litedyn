@@ -9,7 +9,7 @@
         <MainUnitHasScaledStatement Value="False"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="opusstreaming"/>
+      <Title Value="oggopus"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
@@ -33,7 +33,7 @@
     </RequiredPackages>
     <Units>
       <Unit>
-        <Filename Value="opusstreaming.lpr"/>
+        <Filename Value="oggopus.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>
@@ -41,7 +41,7 @@
   <CompilerOptions>
     <Version Value="11"/>
     <Target>
-      <Filename Value="opusstreaming"/>
+      <Filename Value="oggopus"/>
     </Target>
     <SearchPaths>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>

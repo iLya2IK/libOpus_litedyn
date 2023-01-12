@@ -14,6 +14,7 @@
 /examples/*/*
 !/examples/*/*.lpr
 !/examples/*/*.lpi
+!/examples/*/testing.opus
 *.key
 *.crt
 *.dbg
