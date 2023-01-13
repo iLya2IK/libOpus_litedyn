@@ -1,3 +1,17 @@
+{
+   OggOpus example - part of libOpus_dyn
+
+   Copyright 2023 Ilya Medvedkov
+
+   In this example, pcm audio data is recorded by OpenAL, encoded and saved
+   to a file in opus-ogg format in streaming mode.
+   Then the saved file is opened, audio data is read and decoded, then OpenAL
+   is played with buffering.
+
+   Additionally required the OpenAL_soft library:
+      https://github.com/iLya2IK/libOpenALsoft_dyn
+}
+
 program oggopus;
 
 uses
@@ -9,7 +23,10 @@ uses
 
 type
 
-{ TOALOpusDataRecorder }
+  { TOALStreamDataRecorder, TOALStreamDataSource child classes
+    to implement Opus-Ogg data encoding/decoding in streaming mode }
+
+  { TOALOpusDataRecorder }
 
   TOALOpusDataRecorder = class(TOALStreamDataRecorder)
   private
@@ -105,7 +122,8 @@ begin
     channels := 2;
   end;
 
-  Result := FStream.SaveToFile(Fn, oemVBR, channels, Frequency, 128000, 16, 0.5, nil);
+  Result := FStream.SaveToFile(Fn, oemVBR, channels,
+                                           Frequency, 128000, 16, 0.5, nil);
 end;
 
 function TOALOpusDataRecorder.SaveToStream(Str : TStream) : Boolean;
@@ -125,7 +143,8 @@ begin
   Result := FStream.WriteSamples(Buffer, Count, nil);
 end;
 
-const cCaptureFile = 'capture.opus';
+const // name of file to capture data
+      cCaptureFile = 'capture.opus';
       {$ifdef Windows}
       cOALDLL = '..\libs\soft_oal.dll';
       cOpusDLL : Array [0..2] of String = ('..\libs\opus.dll',
@@ -134,32 +153,42 @@ const cCaptureFile = 'capture.opus';
       {$endif}
 
 var
-  OALCapture : TOALCapture;
-  OALPlayer  : TOALPlayer;
+  OALCapture : TOALCapture; // OpenAL audio recoder
+  OALPlayer  : TOALPlayer;  // OpenAL audio player
   dt: Integer;
 begin
+  // Open Opus, Ogg, OpenAL libraries and initialize interfaces
   {$ifdef Windows}
   if TOpenAL.OALLibsLoad([cOALDLL]) and TOpus.OpusLibsLoad(cOpusDLL) then
   {$else}
   if TOpenAL.OALLibsLoadDefault and TOpus.OpusLibsLoadDefault then
   {$endif}
   begin
+    // create OpenAL audio recoder
     OALCapture := TOALCapture.Create;
     try
       try
+        // config OpenAL audio recoder
         OALCapture.DataRecClass := TOALOpusDataRecorder;
+        // initialize OpenAL audio recoder
         OALCapture.Init;
+        // configure buffering for the audio recorder to save data to a file
         if OALCapture.SaveToFile(cCaptureFile) then
         begin
+          // start to record data with OpanAL
           OALCapture.Start;
 
+          // run recording loop
           dt := 0;
           while dt < 1000 do begin
+            // capture new data chunk and encode/write with opusenc to
+            // cCaptureFile in opus-ogg format
             OALCapture.Proceed;
             TThread.Sleep(10);
             inc(dt);
           end;
 
+          //stop recording. close opus-ogg file cCaptureFile
           OALCapture.Stop;
 
           WriteLn('Capturing completed successfully!');
@@ -174,18 +203,24 @@ begin
       OALCapture.Free;
     end;
 
-
+    // create OpenAL audio player
     OALPlayer := TOALPlayer.Create;
     try
       try
+        // config OpenAL audio player
         OALPlayer.DataSourceClass := TOALOpusDataSource;
+        // initialize OpenAL audio player
         OALPlayer.Init;
+        // configure buffering for the audio player to read data from file
         if OALPlayer.LoadFromFile(cCaptureFile) then
         begin
-
+          // start to play audio data with OpanAL
           OALPlayer.Play;
 
+          // run playing loop. do while the data is available
           while OALPlayer.Status = oalsPlaying do begin
+            // if there are empty buffers available - read/decode new data chunk
+            // from cCaptureFile with opusfile and put them in the queue
             OALPlayer.Stream.Proceed;
             TThread.Sleep(10);
           end;
@@ -202,10 +237,10 @@ begin
       OALPlayer.Free;
     end;
 
+    // close interfaces
     TOpenAL.OALLibsUnLoad;
     TOpus.OpusLibsUnLoad;
   end else
     WriteLn('Cant load libraries');
-  ReadLn;
 end.
 

@@ -118,14 +118,22 @@ type
 
   IOpusEncoderDecoder = interface(IUnknown)
   ['{85E2202D-BBF3-4CE7-918D-A7FD2DE398BC}']
+  { Frequency of signal }
   function Frequency : Cardinal;
+  { Number of channels }
   function Channels : Cardinal;
 
+  { Convert frame size to number of bytes. isfloat defines size of sample }
   function FrameSizeToBytes(fSz : TOpusFrameSize; isfloat : Boolean) : Integer;
+  { Convert frame size to number of samples per channel }
   function FrameSizeToSamples(fSz : TOpusFrameSize) : Integer;
+  { Convert samples per channel to frame size }
   function SamplesToFrameSize(fSamples : Integer) : TOpusFrameSize;
+  { Convert samples per channel to bytes number. isfloat defines size of sample }
   function SamplesToBytes(fSamples : Integer; isfloat : Boolean) : Integer;
+  { Convert bytes to frame size. isfloat defines size of sample }
   function BytesToFrameSize(fBytes : Integer; isfloat : Boolean) : TOpusFrameSize;
+  { Convert bytes to samples per channel. isfloat defines size of sample }
   function BytesToSamples(fBytes : Integer; isfloat : Boolean) : Integer;
   end;
 
@@ -135,13 +143,31 @@ type
   ['{673D4CDC-E222-4961-BE78-C002538D5597}']
   function Ref : pOpusEncoder;
 
+  { Init encoder. @see opus_encoder_init
+    @afreq Frequency
+    @achannels Number of channels
+    @aApp Coding mode }
   procedure Init(afreq : Cardinal; achannels : Cardinal; aApp : TOpusEncApp);
+  { Done encoder. }
   procedure Done;
 
+  { Get final range for encoder }
   function FinalRange : Integer;
 
+  { Encode an Opus frame from 16-bit input. @see opus_encode
+    @param Buffer Buffer to encode
+    @param Fsz Size (duration) of frame
+    @param Data Output payload. This must contain storage for at least MaxDataSz
+    @param MaxDataSz Size of the allocated memory for the output payload
+    @returns The length of the encoded packet (in bytes) }
   function EncodeFrameInt16(Buffer : Pointer; Fsz : TOpusFrameSize;
                             Data : Pointer; MaxDataSz : Integer) : Integer;
+  { Encode an Opus frame from floating point input. @see opus_encode_float
+    @param Buffer Buffer to encode
+    @param Fsz Size (duration) of frame
+    @param Data Output payload. This must contain storage for at least MaxDataSz
+    @param MaxDataSz Size of the allocated memory for the output payload
+    @returns The length of the encoded packet (in bytes) }
   function EncodeFrameFloat(Buffer : Pointer; Fsz : TOpusFrameSize;
                             Data : Pointer; MaxDataSz : Integer) : Integer;
 
@@ -419,6 +445,14 @@ type
 
     fStream   : TStream;
 
+    procedure Initialize(aStream : TStream;
+                         aMode : TOGGSoundEncoderMode;
+                         aChannels : Cardinal;
+                         aFreq, aBitrate : Cardinal;
+                         aComplexity : Integer;
+                         aMaxPacketDurationMs : Single;
+                         aApp : TOpusEncApp);
+
     function WriteFrame(aPCM : Pointer; aCount : TOpusFrameSize; isfloat : Boolean
       ) : Integer;
     procedure PushPacket;
@@ -433,7 +467,27 @@ type
                        aChannels : Cardinal;
                        aFreq, aBitrate : Cardinal;
                        aComplexity : Integer;
-                       aMaxPacketDurationMs : Integer);
+                       aMaxPacketDurationMs : Byte); overload;
+    constructor Create(aStream : TStream;
+                       aMode : TOGGSoundEncoderMode;
+                       aChannels : Cardinal;
+                       aFreq, aBitrate : Cardinal;
+                       aComplexity : Integer;
+                       aMaxPacketSize : TOpusFrameSize); overload;
+    constructor Create(aStream : TStream;
+                       aFreq : Cardinal;
+                       aChannels : Cardinal;
+                       aApp : TOpusEncApp;
+                       aMaxPacketSize : TOpusFrameSize); overload;
+    constructor Create(aStream : TStream;
+                       aFreq : Cardinal;
+                       aChannels : Cardinal;
+                       aApp : TOpusEncApp); overload;
+    constructor Create(aStream : TStream;
+                       aMode : TOGGSoundEncoderMode;
+                       aChannels : Cardinal;
+                       aFreq, aBitrate : Cardinal;
+                       aComplexity : Integer); overload;
     destructor Destroy; override;
 
     function WriteInt16(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
@@ -625,9 +679,9 @@ type
     function Ready : Boolean; override;
   end;
 
-  { TOpusOggStreamingEncoder }
+  { TOpusOggStreamEncoder }
 
-  TOpusOggStreamingEncoder = class(TOpusOggEncoder)
+  TOpusOggStreamEncoder = class(TOpusOggEncoder)
   private
     fStream : TStream;
   protected
@@ -674,9 +728,9 @@ type
     function Ready : Boolean; override;
   end;
 
-  { TOpusOggStreamingDecoder }
+  { TOpusOggStreamDecoder }
 
-  TOpusOggStreamingDecoder = class(TOpusOggDecoder)
+  TOpusOggStreamDecoder = class(TOpusOggDecoder)
   private
     fStream : TStream;
   protected
@@ -712,45 +766,182 @@ type
     class function TimeToLowFrameSize(dur : Single) : TOpusFrameSize;
     class function TimeToHighFrameSize(dur : Single) : TOpusFrameSize;
   public
+    {  Create the new Opus encoder comment
+       @returns New IOpusEncComment interface }
     class function NewEncComment : IOpusEncComment; overload;
+    {  Create copy of Opus encoder comment
+       @param src Encoder comment interface to copy from
+       @returns New IOpusEncComment interface }
     class function NewEncComment(src : IOpusEncComment) : IOpusEncComment; overload;
+    {  Create the new Opus encoder comment referenced to native pOggOpusComments
+       @param src Native encoder comment to reference to
+       @returns New IOpusEncComment interface }
     class function RefEncComment(src : pOggOpusComments) : IOpusEncComment;
+    {  Create the new Opus decoder comment
+       @returns New IOGGComment interface }
     class function NewDecComment : IOGGComment;
+    {  Create the new Opus decoder comment referenced to native pOpusTags
+       @param src Native decoder comment to reference to
+       @returns New IOGGComment interface }
     class function RefDecComment(src : pOpusTags) : IOGGComment;
+    {  Create the new Opus decoder header referenced to native pOpusHead
+       @param src Native decoder header to reference to
+       @returns New IOpusDecHead interface }
     class function RefDecHead(src : pOpusHead) : IOpusDecHead;
     //class function NewDecPicture : IOpusDecPicture;
 
+    {  Converts the number of bytes to a frame size (frame duration)
+       with a sample size equal to int16. The resulting frame duration is
+       rounded to the maximum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of bytes
+       @returns Frame size (duration) as TOpusFrameSize }
     class function HighFrameSizeInt16(aFreq, aChannels : Cardinal;
                    aBytes : Integer) : TOpusFrameSize;
+    {  Converts the number of bytes to a frame size (frame duration)
+       with a sample size equal to float. The resulting frame duration is
+       rounded to the maximum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of bytes
+       @returns Frame size (duration) as TOpusFrameSize }
     class function HighFrameSizeFloat(aFreq, aChannels : Cardinal;
                    aBytes : Integer) : TOpusFrameSize;
+    {  Converts the number of bytes to a frame size (frame duration)
+       with a sample size equal to int16. The resulting frame duration is
+       rounded to the minimum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of bytes
+       @returns Frame size (duration) as TOpusFrameSize }
     class function LowFrameSizeInt16(aFreq, aChannels : Cardinal;
                    aBytes : Integer) : TOpusFrameSize;
+    {  Converts the number of bytes to a frame size (frame duration)
+       with a sample size equal to float. The resulting frame duration is
+       rounded to the minimum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of bytes
+       @returns Frame size (duration) as TOpusFrameSize }
     class function LowFrameSizeFloat(aFreq, aChannels : Cardinal;
                    aBytes : Integer) : TOpusFrameSize;
+    {  Converts the number of samples to a frame size (frame duration).
+       The resulting frame duration is rounded to the maximum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of samples
+       @returns Frame size (duration) as TOpusFrameSize }
     class function HighFrameSizeSamples(aFreq, aChannels : Cardinal;
                    aSamples : Integer) : TOpusFrameSize;
+    {  Converts the number of samples to a frame size (frame duration).
+       The resulting frame duration is rounded to the minimum available value.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aBytes Amount of samples
+       @returns Frame size (duration) as TOpusFrameSize }
     class function LowFrameSizeSamples(aFreq, aChannels : Cardinal;
                    aSamples : Integer) : TOpusFrameSize;
+    {  Converts the frame size (frame duration) to a number of bytes.
+       The sample size equal to int16.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aFs Frame size as TOpusFrameSize
+       @returns Number of bytes per frame }
     class function MinBufferSizeInt16(aFreq, aChannels : Cardinal;
                    aFs : TOpusFrameSize) : Integer; overload;
+    {  Converts the frame size (frame duration) to a number of bytes.
+       The sample size equal to float.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aFs Frame size as TOpusFrameSize
+       @returns Number of bytes per frame }
     class function MinBufferSizeFloat(aFreq, aChannels : Cardinal;
                    aFs : TOpusFrameSize) : Integer; overload;
+    {  Converts the frame size (frame duration) to a number of bytes.
+       The sample size equal to int16.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aFs Frame size in milliseconds
+       @returns Number of bytes per frame }
     class function MinBufferSizeInt16(aFreq, aChannels : Cardinal;
                    aDuration : Single) : Integer; overload;
+    {  Converts the frame size (frame duration) to a number of bytes.
+       The sample size equal to float.
+       @param aFreq Frequency of frame in Hz
+       @param aChannels Number of channels in frame
+       @param aFs Frame size in milliseconds
+       @returns Number of bytes per frame }
     class function MinBufferSizeFloat(aFreq, aChannels : Cardinal;
                    aDuration : Single) : Integer; overload;
+    {  Converts the frame size (frame duration) to a number of samples
+       per channel.
+       @param aFreq Frequency of frame in Hz
+       @param aFs Frame size as TOpusFrameSize
+       @returns Number of samples per frame per channel }
     class function SamplesCount(aFreq : Cardinal; aFs : TOpusFrameSize) : Integer;
+    {  Converts the frame size (frame duration) to a duration in ms.
+       @param aFs Frame size as TOpusFrameSize
+       @returns Duration in milliseconds }
     class function FrameSizeToTime(fz : TOpusFrameSize) : Single;
 
-    class function NewStreamingEncoder(aStream : TStream;
+    {  Creates an Opus encoder that packs data packets into an OGG container.
+       @param aStream A reference to the stream object in which the encoded
+                      data should be stored
+       @param aMode An encoding mode (VBR or CBR)
+       @param aChannels Number of channels
+       @param aFreq Frequency of signal in Hz
+       @param aBitrate A target value of bitrate in bits per second (bps)
+       @param aComplexity A complexity value for encoder [0..10]
+       @param aComments A comment block to save to ogg container
+       @returns New TOpusOggEncoder object }
+    class function NewOggStreamEncoder(aStream : TStream;
                        aMode : TOGGSoundEncoderMode;
                        aChannels : Cardinal;
                        aFreq, aBitrate : Cardinal;
                        aComplexity : Integer;
                        aComments : IOGGComment) : TOpusOggEncoder;
-    class function NewStreamingDecoder(aStream : TStream) : TOpusOggDecoder;
+    {  Creates an Opus decoder that unpacks data packets from an OGG container.
+       @param aStream A reference to the stream object in which the decoded
+                      data should be stored
+       @returns New TOpusOggDecoder object }
+    class function NewOggStreamDecoder(aStream : TStream) : TOpusOggDecoder;
 
+    {  Creates an Opus encoder that packs data packets in custom manner.
+       It can be recommended for organizing audio streaming.
+       @param aStream A reference to the stream object in which the encoded
+                      data should be stored
+       @param aMode An encoding mode (VBR or CBR)
+       @param aChannels Number of channels
+       @param aFreq Frequency of signal in Hz
+       @param aBitrate A target value of bitrate in bits per second (bps)
+       @param aComplexity A complexity value for encoder [0..10]
+       @param aMaxPacketDurationMs Max packet size (total length of all
+                                   frames in milliseconds). Must be less than
+                                   or equal to 120 ms.
+       @returns New TOpusStreamEncoder object }
+    class function NewOpusStreamEncoder(aStream : TStream;
+                       aMode : TOGGSoundEncoderMode;
+                       aChannels : Cardinal;
+                       aFreq, aBitrate : Cardinal;
+                       aComplexity : Integer;
+                       aMaxPacketDurationMs : Byte) : TOpusStreamEncoder;
+    {  Creates an Opus decoder that unpacks data packets with custom format.
+       It can be recommended for organizing audio streaming.
+       @param aStream A reference to the stream object in which the decoded
+                      data should be stored
+       @param aFreq Frequency of signal in Hz
+       @param aChannels Number of channels
+       @returns New TOpusStreamDecoder object }
+    class function NewOpusStreamDecoder(aStream : TStream;
+                                        aFreq, aChannels : Cardinal) :
+                                                         TOpusStreamDecoder;
+
+    {  Applies soft-clipping to bring a float signal within the [-1,1] range.
+       @see opus_pcm_soft_clip
+       @param aBuffer Input PCM and modified PCM
+       @param aSamplesCount Number of samples per channel to process
+       @param aChannels Number of channels }
     class procedure PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
                                       aChannels : Cardinal);
 
@@ -1215,6 +1406,31 @@ end;
 
 { TOpusStreamEncoder }
 
+procedure TOpusStreamEncoder.Initialize(aStream : TStream;
+  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
+  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Single;
+  aApp : TOpusEncApp);
+begin
+  fStream := aStream;
+
+  fEncoder := TOpusEncoder.Create(aFreq, aChannels, aApp);
+  fEncoder.SetBitrate(aBitrate);
+  fEncoder.SetMode(aMode);
+  fEncoder.SetComplexity(aComplexity);
+
+  fRepacker := TOpusRepacketizer.Create;
+  fRepackerDurationMs := 0;
+  fMaxPacketDurationMs := aMaxPacketDurationMs;
+
+  fMaxDataBufferSize := TOpus.MinBufferSizeFloat(aFreq, aChannels,
+                                                 aMaxPacketDurationMs);
+  fBuffers := TFastPointerCollection.Create;
+
+  FOnPacketWriteHeader := @InternalWriteHeader;
+  fPacketHeaderType := ophState;
+  fLastDuration := ofs_Error;
+end;
+
 function TOpusStreamEncoder.WriteFrame(aPCM : Pointer;
   aCount : TOpusFrameSize; isfloat : Boolean) : Integer;
 var
@@ -1330,27 +1546,40 @@ end;
 
 constructor TOpusStreamEncoder.Create(aStream : TStream;
   aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer;
-  aMaxPacketDurationMs : Integer);
+  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Byte);
 begin
-  fStream := aStream;
+  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
+                       Single(aMaxPacketDurationMs), oeaAudio);
+end;
 
-  fEncoder := TOpusEncoder.Create(aFreq, aChannels, oeaAudio);
-  fEncoder.SetBitrate(aBitrate);
-  fEncoder.SetMode(aMode);
-  fEncoder.SetComplexity(aComplexity);
+constructor TOpusStreamEncoder.Create(aStream : TStream;
+  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
+  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketSize : TOpusFrameSize);
+begin
+  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
+                       TOpus.FrameSizeToTime(aMaxPacketSize), oeaAudio);
+end;
 
-  fRepacker := TOpusRepacketizer.Create;
-  fRepackerDurationMs := 0;
-  fMaxPacketDurationMs := aMaxPacketDurationMs;
+constructor TOpusStreamEncoder.Create(aStream : TStream; aFreq : Cardinal;
+  aChannels : Cardinal; aApp : TOpusEncApp; aMaxPacketSize : TOpusFrameSize);
+begin
+  Initialize(aStream, oemVBR, aChannels, aFreq, 128000, 5,
+                       TOpus.FrameSizeToTime(aMaxPacketSize), aApp);
+end;
 
-  fMaxDataBufferSize := TOpus.MinBufferSizeFloat(aFreq, aChannels,
-                                                 Single(aMaxPacketDurationMs));
-  fBuffers := TFastPointerCollection.Create;
+constructor TOpusStreamEncoder.Create(aStream : TStream; aFreq : Cardinal;
+  aChannels : Cardinal; aApp : TOpusEncApp);
+begin
+  Initialize(aStream, oemVBR, aChannels, aFreq, 128000, 5,
+                       TOpus.FrameSizeToTime(ofs_120ms), aApp);
+end;
 
-  FOnPacketWriteHeader := @InternalWriteHeader;
-  fPacketHeaderType := ophState;
-  fLastDuration := ofs_Error;
+constructor TOpusStreamEncoder.Create(aStream : TStream;
+  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
+  aBitrate : Cardinal; aComplexity : Integer);
+begin
+  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
+                       TOpus.FrameSizeToTime(ofs_120ms), oeaAudio);
 end;
 
 destructor TOpusStreamEncoder.Destroy;
@@ -1786,14 +2015,14 @@ function TOpusFile.InitEncoder(aMode : TOGGSoundEncoderMode;
   aChannels : Cardinal; aFreq, aBitrate, aBitdepth : Cardinal;
   aQuality : Single; aComments : IOGGComment) : TOGGSoundEncoder;
 begin
-  Result := TOpus.NewStreamingEncoder(Stream, aMode, aChannels,
+  Result := TOpus.NewOggStreamEncoder(Stream, aMode, aChannels,
                                       aFreq, aBitrate, Round(aQuality * 10),
                                       aComments);
 end;
 
 function TOpusFile.InitDecoder : TOGGSoundDecoder;
 begin
-  Result := TOpus.NewStreamingDecoder(Stream);
+  Result := TOpus.NewOggStreamDecoder(Stream);
 end;
 
 { TOpusOggDecoder }
@@ -1894,9 +2123,9 @@ begin
   Result := Assigned(fRef);
 end;
 
-{ TOpusOggStreamingDecoder }
+{ TOpusOggStreamDecoder }
 
-function TOpusOggStreamingDecoder.DoRead(_ptr : Pointer; _nbytes : Integer
+function TOpusOggStreamDecoder.DoRead(_ptr : Pointer; _nbytes : Integer
   ) : Integer;
 begin
   if (_nbytes <= 0) then begin Result := 0; Exit; end;
@@ -1907,7 +2136,7 @@ begin
   end;
 end;
 
-function TOpusOggStreamingDecoder.DoSeek(_offset : Int64; _whence : Integer
+function TOpusOggStreamDecoder.DoSeek(_offset : Int64; _whence : Integer
   ) : Integer;
 begin
   try
@@ -1923,7 +2152,7 @@ begin
   end;
 end;
 
-function TOpusOggStreamingDecoder.DoTell : Int64;
+function TOpusOggStreamDecoder.DoTell : Int64;
 begin
   try
     result := fStream.Position;
@@ -1932,15 +2161,15 @@ begin
   end;
 end;
 
-constructor TOpusOggStreamingDecoder.Create(aStream : TStream);
+constructor TOpusOggStreamDecoder.Create(aStream : TStream);
 begin
   fStream := aStream;
   Inherited Create;
 end;
 
-{ TOpusOggStreamingEncoder }
+{ TOpusOggStreamEncoder }
 
-function TOpusOggStreamingEncoder.DoWrite(Buffer : Pointer; BufferSize : Integer
+function TOpusOggStreamEncoder.DoWrite(Buffer : Pointer; BufferSize : Integer
   ) : Integer;
 begin
   if (BufferSize < 0) then Exit(1);
@@ -1949,7 +2178,7 @@ begin
   Result := 0;
 end;
 
-constructor TOpusOggStreamingEncoder.Create(aStream : TStream;
+constructor TOpusOggStreamEncoder.Create(aStream : TStream;
   aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
   aBitrate : Cardinal; aComplexity : Integer; aComments : IOGGComment);
 begin
@@ -2497,21 +2726,38 @@ begin
   Result := TUniqOpusDecPicture.Create as IOpusDecPicture;
 end; }
 
-class function TOpus.NewStreamingEncoder(aStream : TStream;
+class function TOpus.NewOggStreamEncoder(aStream : TStream;
   aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
   aBitrate : Cardinal; aComplexity : Integer; aComments : IOGGComment
   ) : TOpusOggEncoder;
 begin
-  Result := TOpusOggStreamingEncoder.Create(aStream, aMode,
+  Result := TOpusOggStreamEncoder.Create(aStream, aMode,
                                                   achannels,
                                                   aFreq, abitrate,
                                                   aComplexity,
                                                   aComments);
 end;
 
-class function TOpus.NewStreamingDecoder(aStream : TStream) : TOpusOggDecoder;
+class function TOpus.NewOggStreamDecoder(aStream : TStream) : TOpusOggDecoder;
 begin
-  Result := TOpusOggStreamingDecoder.Create(aStream);
+  Result := TOpusOggStreamDecoder.Create(aStream);
+end;
+
+class function TOpus.NewOpusStreamEncoder(aStream : TStream;
+  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
+  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Byte
+  ) : TOpusStreamEncoder;
+begin
+  Result := TOpusStreamEncoder.Create(aStream, aMode,
+                                               aChannels, aFreq,
+                                               aBitrate, aComplexity,
+                                               aMaxPacketDurationMs);
+end;
+
+class function TOpus.NewOpusStreamDecoder(aStream : TStream; aFreq,
+  aChannels : Cardinal) : TOpusStreamDecoder;
+begin
+  Result := TOpusStreamDecoder.Create(aStream, aFreq, aChannels);
 end;
 
 class procedure TOpus.PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
