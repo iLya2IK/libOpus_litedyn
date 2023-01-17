@@ -5,8 +5,8 @@
 
    In this example, pcm audio data is recorded by OpenAL, encoded and saved
    to a file in opus-ogg format in streaming mode.
-   Then the saved file is opened, audio data is read and decoded, then OpenAL
-   is played with buffering.
+   Then the saved file is opened, audio data is read and decoded, then played
+   by OpenAL with buffering.
 
    Additionally required the OpenAL_soft library:
       https://github.com/iLya2IK/libOpenALsoft_dyn

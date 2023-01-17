@@ -128,7 +128,7 @@ begin
           try
             // get size of cDur in bytes
             max_len := TOpus.MinBufferSizeInt16(oggf.Frequency, oggf.Channels,
-                                                                Dur);
+                                                                cDur);
             // initialize intermediate buffer to store decoded data chunk
             Buffer := GetMem(max_len);
             try
