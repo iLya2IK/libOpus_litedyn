@@ -22,7 +22,7 @@ uses
   cthreads,
   {$endif}
   Classes, SysUtils,
-  OGLOpusWrapper, OGLOGGWrapper;
+  OGLOpusWrapper, OGLOGGWrapper, OGLSoundUtils, OGLSoundUtilTypes;
 
 const // the name of source opus-ogg file
       cInputFile  = '..' + PathDelim + 'media' + PathDelim + 'testing.opus';
@@ -44,9 +44,10 @@ var
   pack_dec : TOpusStreamDecoder; // opus custom streaming decoder
   aFileStream : TFileStream;     // TFileStream linked to cStreamFile
   Buffer : Pointer;              // intermediate buffer
-  len,                           // length of data
-    max_len,                     // maximum avaible length of data
-    bitrate : Integer;           // current bitrate
+  bitrate : Integer;             // current bitrate
+  frame_size : ISoundFrameSize;
+  len : ISoundFrameSize;         // length of writed/read data
+  aEncProp : ISoundEncoderProps;
 begin
   // Initialize opus, opusenc, opusfile interfaces - load libraries
   {$ifdef Windows}
@@ -62,45 +63,51 @@ begin
       if oggf.LoadFromFile(cInputFile, false) then
       begin
         // cInputFile opended and headers/coments are loaded
-        // get size of cDur in bytes
-        max_len := TOpus.MinBufferSizeInt16(oggf.Frequency, oggf.Channels, cDur);
+        // create framesize from cDur
+        frame_size := oggf.Decoder.FrameFromDuration(TOpus.FrameSizeToTime(cDur));
         // get the file bitrate from opus-ogg decoder
         bitrate := oggf.Decoder.Bitrate;
 
+        // gen encoder properties
+        // complexity = 5, max packet duration = 120 ms,
+        aEncProp := TOGLSound.EncProps([TOGLSound.PROP_MODE, oemVBR,
+                                        TOGLSound.PROP_CHANNELS, oggf.Channels,
+                                        TOGLSound.PROP_FREQUENCY, oggf.Frequency,
+                                        TOGLSound.PROP_BITRATE, bitrate,
+                                        TOpus.PROP_COMPLEXITY, 5,
+                                        // for streaming encoder:
+                                        TOpus.PROP_MAX_PACKET_DURATION_MS, 120,
+                                        // there's no necessity for that. just for an example:
+                                        TOpus.PROP_HEADER_TYPE, ophState]);
+
         // initialize intermediate buffer to store decoded data chunk
-        Buffer := GetMem(max_len);
+        Buffer := GetMem(frame_size.AsBytes);
         try
           // create/open to write cStreamFile
           aFileStream := TFileStream.Create(cStreamFile, fmOpenWrite or fmCreate);
           try
             // initialize custom streaming encoder
-            // complexity = 5, max packet duration = 120 ms,
             // header type - default (ophState: every header contains
             //                        len, freq, numofchannels: 6 bytes total)
             // to change header type set the PacketHeaderType property
-            // or redefine the OnPacketWriteHeader property
-            pack_enc := TOpus.NewOpusStreamEncoder(aFileStream, oemVBR,
-                                                           oggf.Channels,
-                                                           oggf.Frequency,
-                                                           bitrate, 5,
-                                                           120);
+            //   or set another value for TOpus.PROP_HEADER_TYPE (look above)
+            //   or redefine the OnPacketWriteHeader property
+            pack_enc := TOpus.NewOpusStreamEncoder(aFileStream, aEncProp);
             try
               repeat
                 // read decoded pcm data from opus-ogg file
-                // len - length of decoded data in bytes
-                len := oggf.ReadData(Buffer, max_len, nil);
+                // len - length of decoded data
+                len := oggf.ReadData(Buffer, frame_size, nil);
 
-                if len > 0 then
+                if len.IsValid then
                 begin
                   // this is where pcm data is encoded into the opus frame.
                   // the encoded frames are automatically packaged into a set of
                   // packets, and then written to the stream file as a sequence:
                   // [packet1_header][paket1_data][packet2_header][paket2_data]...[packetN_header][paketN_data]
-                  pack_enc.WriteInt16(Buffer,
-                                      pack_enc.Encoder.BytesToFrameSize(len,
-                                                                        false));
+                  pack_enc.WriteData(Buffer, len);
                 end;
-              until len < max_len;
+              until len.Less(frame_size);
               // complete the stream formation process.
               // write the packets that are in the cache.
               pack_enc.Close;
@@ -116,10 +123,8 @@ begin
 
         // Config TOpusFile to encode state (opusenc mode)
         // and create/open to write cOutputFile
-        // complexity = 5
-        if oggf.SaveToFile(cOutputFile, oemVBR, oggf.Channels,
-                                                oggf.Frequency,
-                                                bitrate, 16, 0.5, nil) then
+        // same encoder properties
+        if oggf.SaveToFile(cOutputFile, aEncProp, nil) then
         begin
           // cOutputFile has been created/opened and headers/comments have
           // been
@@ -127,10 +132,9 @@ begin
           aFileStream := TFileStream.Create(cStreamFile, fmOpenRead);
           try
             // get size of cDur in bytes
-            max_len := TOpus.MinBufferSizeInt16(oggf.Frequency, oggf.Channels,
-                                                                cDur);
+            frame_size := oggf.Encoder.FrameFromDuration(TOpus.FrameSizeToTime(cDur));
             // initialize intermediate buffer to store decoded data chunk
-            Buffer := GetMem(max_len);
+            Buffer := GetMem(frame_size.AsBytes);
             try
               // initialize custom streaming decoder
               // header type - default (ophState: every header contains
@@ -144,15 +148,15 @@ begin
                 repeat
                   // read decoded pcm data from opus streaming file
                   // len - length of decoded data in samples per channels
-                  len := pack_dec.ReadDataInt16(Buffer, max_len);
+                  len := pack_dec.ReadData(Buffer, frame_size);
 
-                  if len > 0 then begin
+                  if len.IsValid then begin
                     // this is where pcm data samples are encoded into the
                     // opus-ogg format and then written to the opus-ogg file.
-                    oggf.WriteSamples(Buffer, len, nil);
+                    oggf.WriteData(Buffer, len, nil);
                   end;
 
-                until len < pack_dec.Decoder.BytesToSamples(max_len, false);
+                until len.Less(frame_size);
               finally
                 pack_dec.Free;
               end;

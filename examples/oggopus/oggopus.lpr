@@ -19,7 +19,8 @@ uses
   cthreads,
   {$endif}
   Classes, SysUtils,
-  OGLOpusWrapper, OGLOpenALWrapper, OGLOGGWrapper;
+  OGLOpusWrapper, OGLOpenALWrapper, OGLOGGWrapper,
+  OGLSoundUtils, OGLSoundUtilTypes;
 
 type
 
@@ -91,7 +92,8 @@ function TOALOpusDataSource.ReadChunk(const Buffer : Pointer; Pos : Int64;
 begin
   fmt := TOpenAL.OALFormat(FStream.Channels, FStream.Bitdepth);
   freq := FStream.Frequency;
-  Result := FStream.ReadData(Buffer, Sz, nil);
+  Result := FStream.ReadData(Buffer, FStream.Decoder.FrameFromBytes(Sz),
+                                     nil).AsBytes;
 end;
 
 constructor TOALOpusDataRecorder.Create(aFormat : TOALFormat; aFreq : Cardinal
@@ -122,8 +124,12 @@ begin
     channels := 2;
   end;
 
-  Result := FStream.SaveToFile(Fn, oemVBR, channels,
-                                           Frequency, 128000, 16, 0.5, nil);
+  Result := FStream.SaveToFile(Fn,
+                TOGLSound.EncProps([TOGLSound.PROP_MODE, oemVBR,
+                                    TOGLSound.PROP_CHANNELS, channels,
+                                    TOGLSound.PROP_FREQUENCY, Frequency,
+                                    TOGLSound.PROP_QUALITY, 5,
+                                    TOGLSound.PROP_BITRATE, 128000]), nil);
 end;
 
 function TOALOpusDataRecorder.SaveToStream(Str : TStream) : Boolean;
@@ -140,7 +146,8 @@ end;
 function TOALOpusDataRecorder.WriteSamples(const Buffer : Pointer; Count : Integer
   ) : Integer;
 begin
-  Result := FStream.WriteSamples(Buffer, Count, nil);
+  Result := FStream.WriteData(Buffer, FStream.Encoder.FrameFromSamples(Count),
+                                      nil).AsSamples;
 end;
 
 const // name of file to capture data

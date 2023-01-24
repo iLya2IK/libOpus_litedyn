@@ -16,7 +16,9 @@ unit OGLOpusWrapper;
 interface
 
 uses
-  Classes, SysUtils, libOpus_dynlite, OGLOGGWrapper, OGLFastList;
+  Classes, SysUtils, libOpus_dynlite, OGLOGGWrapper,
+  OGLSoundUtilTypes, OGLSoundUtils, OGLSoundDataConverting,
+  OGLFastList;
 
 type
 
@@ -176,7 +178,7 @@ type
   procedure SetComplexity(complex : Integer);
   procedure SetSignal(sig : TOpusEncSignal);
   procedure SetApplication(app : TOpusEncApp);
-  procedure SetMode(mode : TOGGSoundEncoderMode);
+  procedure SetMode(mode : TSoundEncoderMode);
   end;
 
   { IOpusRepacketizer }
@@ -319,8 +321,8 @@ type
 
     procedure Add(const comment: String);
     procedure AddTag(const tag, value: String);
-    function Query(const tag: String; index: integer): String;
-    function QueryCount(const tag: String): integer;
+    function Query(const {%H-}tag: String; {%H-}index: integer): String;
+    function QueryCount(const {%H-}tag: String): integer;
     procedure AddPicture(const filename: String; aPic : TAPICType; const descr : String);
     procedure AddPictureFromMem(const mem : Pointer; sz : Integer; aPic : TAPICType; const descr : String);
   end;
@@ -379,7 +381,7 @@ type
     procedure SetComplexity(complex : Integer);
     procedure SetSignal(sig : TOpusEncSignal);
     procedure SetApplication(app : TOpusEncApp);
-    procedure SetMode(mode : TOGGSoundEncoderMode);
+    procedure SetMode(mode : TSoundEncoderMode);
   end;
 
   { TOpusRepacketizer }
@@ -446,12 +448,7 @@ type
     fStream   : TStream;
 
     procedure Initialize(aStream : TStream;
-                         aMode : TOGGSoundEncoderMode;
-                         aChannels : Cardinal;
-                         aFreq, aBitrate : Cardinal;
-                         aComplexity : Integer;
-                         aMaxPacketDurationMs : Single;
-                         aApp : TOpusEncApp);
+                         aProp : ISoundEncoderProps);
 
     function WriteFrame(aPCM : Pointer; aCount : TOpusFrameSize; isfloat : Boolean
       ) : Integer;
@@ -463,31 +460,7 @@ type
                                   packetLen : Integer);
   public
     constructor Create(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
-                       aMaxPacketDurationMs : Byte); overload;
-    constructor Create(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
-                       aMaxPacketSize : TOpusFrameSize); overload;
-    constructor Create(aStream : TStream;
-                       aFreq : Cardinal;
-                       aChannels : Cardinal;
-                       aApp : TOpusEncApp;
-                       aMaxPacketSize : TOpusFrameSize); overload;
-    constructor Create(aStream : TStream;
-                       aFreq : Cardinal;
-                       aChannels : Cardinal;
-                       aApp : TOpusEncApp); overload;
-    constructor Create(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer); overload;
+                       aProps : ISoundEncoderProps);
     destructor Destroy; override;
 
     function WriteInt16(aPCM : Pointer; aCount : TOpusFrameSize) : Integer;
@@ -496,6 +469,7 @@ type
     function WriteSamplesFloat(aPCM : Pointer; aCount : Integer) : Integer;
     function WriteDataInt16(aPCM : Pointer; aBytes : Integer) : Integer;
     function WriteDataFloat(aPCM : Pointer; aBytes : Integer) : Integer;
+    function WriteData(aPCM : Pointer; aFrame : ISoundFrameSize) : ISoundFrameSize;
     procedure Close;
 
     property Encoder : TOpusEncoder read fEncoder;
@@ -596,6 +570,7 @@ type
     function ReadSamplesFloat(aPCM : Pointer; aCount : Integer) : Integer;
     function ReadDataInt16(aPCM : Pointer; aBytes : Integer) : Integer;
     function ReadDataFloat(aPCM : Pointer; aBytes : Integer) : Integer;
+    function ReadData(aPCM : Pointer; aFrame : ISoundFrameSize) : ISoundFrameSize;
 
     property Decoder : TOpusDecoder read fDecoder;
     property Header  : Pointer read fPacketHeader;
@@ -632,7 +607,7 @@ type
 
   { TOpusOggEncoder }
 
-  TOpusOggEncoder = class(TOGGSoundEncoder)
+  TOpusOggEncoder = class(TSoundAbstractEncoder)
   private
     fRef : pOggOpusEnc;
     fComm : IOGGComment;
@@ -640,39 +615,32 @@ type
     fFreq : Cardinal;
     fenc_callbacks : OpusEncCallbacks;
   protected
-    procedure Init(aMode : TOGGSoundEncoderMode;
-                   aChannels : Cardinal;
-                   aFreq, aBitrate, aBitdepth : Cardinal;
-                   aQuality : Single;
-                   aComments : IOGGComment); override;
+    procedure Init(aProps : ISoundEncoderProps;
+                   aComments : ISoundComment); override;
     procedure Done; override;
 
-    function GetBitdepth : Cardinal; override;
+    function GetSampleSize : TSoundSampleSize; override;
     function GetBitrate : Cardinal; override;
     function GetChannels : Cardinal; override;
     function GetFrequency : Cardinal; override;
-    function GetMode : TOGGSoundEncoderMode; override;
+    function GetMode : TSoundEncoderMode; override;
     function GetQuality : Single; override;
     function GetVersion : Integer; override;
 
     procedure SetBitrate(AValue : Cardinal); override;
-    procedure SetMode(AValue : TOGGSoundEncoderMode); override;
+    procedure SetMode(AValue : TSoundEncoderMode); override;
     procedure SetQuality(AValue : Single); override;
   public
     function Ref : pOggOpusEnc; inline;
 
-    constructor Create(aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
+    constructor Create(aProps : ISoundEncoderProps;
                        aComments : IOGGComment);
     destructor Destroy; override;
 
     function  Comments : IOGGComment; override;
 
-    function DataMode : TOGGSoundDataMode; override;
-
-    function  WriteData(Buffer : Pointer; Count : Integer; {%H-}Par : Pointer) : Integer; override;
+    function  WriteData(Buffer : Pointer; Count : ISoundFrameSize;
+                       {%H-}Par : Pointer) : ISoundFrameSize; override;
     procedure WriteHeader({%H-}Par : Pointer); override;
     procedure Close({%H-}Par : Pointer); override;
 
@@ -682,22 +650,15 @@ type
   { TOpusOggStreamEncoder }
 
   TOpusOggStreamEncoder = class(TOpusOggEncoder)
-  private
-    fStream : TStream;
-  protected
-    function DoWrite(Buffer : Pointer; BufferSize : Integer) : Integer; override;
   public
     constructor Create(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
+                       aProps : ISoundEncoderProps;
                        aComments : IOGGComment);
   end;
 
   { TOpusOggDecoder }
 
-  TOpusOggDecoder = class(TOGGSoundDecoder)
+  TOpusOggDecoder = class(TSoundAbstractDecoder)
   private
     fRef  : pOggOpusFile;
     fHead : IOpusDecHead;
@@ -720,9 +681,8 @@ type
 
     function  Comments : IOGGComment; override;
 
-    function DataMode : TOGGSoundDataMode; override;
-
-    function ReadData(Buffer : Pointer; Count : Integer; {%H-}Par : Pointer) : Integer; override;
+    function ReadData(Buffer : Pointer; Count : ISoundFrameSize;
+                       {%H-}Par : Pointer) : ISoundFrameSize; override;
     procedure ResetToStart; override;
 
     function Ready : Boolean; override;
@@ -731,26 +691,17 @@ type
   { TOpusOggStreamDecoder }
 
   TOpusOggStreamDecoder = class(TOpusOggDecoder)
-  private
-    fStream : TStream;
-  protected
-    function DoRead(_ptr : Pointer; _nbytes : Integer) : Integer; override;
-    function DoSeek(_offset:Int64; _whence:Integer): Integer; override;
-    function DoTell:Int64; override;
   public
     constructor Create(aStream : TStream);
   end;
 
   { TOpusFile }
 
-  TOpusFile = class(TOGGSoundFile)
+  TOpusFile = class(TSoundFile)
   protected
-    function InitEncoder(aMode : TOGGSoundEncoderMode;
-                   aChannels : Cardinal;
-                   aFreq, aBitrate, aBitdepth : Cardinal;
-                   aQuality : Single;
-                   aComments : IOGGComment) : TOGGSoundEncoder; override;
-    function InitDecoder : TOGGSoundDecoder; override;
+    function InitEncoder(aProps : ISoundEncoderProps;
+                   aComments : ISoundComment) : ISoundEncoder; override;
+    function InitDecoder : ISoundDecoder; override;
   end;
 
   TOpus = class
@@ -789,6 +740,10 @@ type
        @returns New IOpusDecHead interface }
     class function RefDecHead(src : pOpusHead) : IOpusDecHead;
     //class function NewDecPicture : IOpusDecPicture;
+
+    class function FrameFromDuration(aFreq : Cardinal; aChannels : Cardinal;
+                         aDurationMs : TOpusFrameSize;
+                         isfloat : Boolean) : ISoundFrameSize;
 
     {  Converts the number of bytes to a frame size (frame duration)
        with a sample size equal to int16. The resulting frame duration is
@@ -888,18 +843,17 @@ type
     {  Creates an Opus encoder that packs data packets into an OGG container.
        @param aStream A reference to the stream object in which the encoded
                       data should be stored
-       @param aMode An encoding mode (VBR or CBR)
-       @param aChannels Number of channels
-       @param aFreq Frequency of signal in Hz
-       @param aBitrate A target value of bitrate in bits per second (bps)
-       @param aComplexity A complexity value for encoder [0..10]
+       @param aProps Encoder properties
+              PROP_MODE An encoding mode (VBR or CBR)
+              PROP_CHANNELS Number of channels
+              PROP_FREQUENCY Frequency of signal in Hz
+              PROP_BITRATE A target value of bitrate in bits per second (bps)
+              PROP_QUALITY = PROP_COMPLEXITY,
+              PROP_COMPLEXITY A complexity value for encoder [0..10]
        @param aComments A comment block to save to ogg container
        @returns New TOpusOggEncoder object }
     class function NewOggStreamEncoder(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
+                       aProps : ISoundEncoderProps;
                        aComments : IOGGComment) : TOpusOggEncoder;
     {  Creates an Opus decoder that unpacks data packets from an OGG container.
        @param aStream A reference to the stream object in which the decoded
@@ -911,21 +865,21 @@ type
        It can be recommended for organizing audio streaming.
        @param aStream A reference to the stream object in which the encoded
                       data should be stored
-       @param aMode An encoding mode (VBR or CBR)
-       @param aChannels Number of channels
-       @param aFreq Frequency of signal in Hz
-       @param aBitrate A target value of bitrate in bits per second (bps)
-       @param aComplexity A complexity value for encoder [0..10]
-       @param aMaxPacketDurationMs Max packet size (total length of all
+       @param aProps Encoder properties
+              PROP_MODE An encoding mode (VBR or CBR)
+              PROP_CHANNELS Number of channels
+              PROP_FREQUENCY Frequency of signal in Hz
+              PROP_BITRATE A target value of bitrate in bits per second (bps)
+              PROP_QUALITY = PROP_COMPLEXITY,
+              PROP_COMPLEXITY A complexity value for encoder [0..10]
+              PROP_MAX_PACKET_DURATION_MS Max packet size (total length of all
                                    frames in milliseconds). Must be less than
                                    or equal to 120 ms.
+              PROP_MAX_PACKET_SIZE Max packet size as TOpusFrameSize
+              PROP_HEADER_TYPE Header type as TOpusPacketHeaderType
        @returns New TOpusStreamEncoder object }
     class function NewOpusStreamEncoder(aStream : TStream;
-                       aMode : TOGGSoundEncoderMode;
-                       aChannels : Cardinal;
-                       aFreq, aBitrate : Cardinal;
-                       aComplexity : Integer;
-                       aMaxPacketDurationMs : Byte) : TOpusStreamEncoder;
+                       aProps : ISoundEncoderProps) : TOpusStreamEncoder;
     {  Creates an Opus decoder that unpacks data packets with custom format.
        It can be recommended for organizing audio streaming.
        @param aStream A reference to the stream object in which the decoded
@@ -944,6 +898,12 @@ type
        @param aChannels Number of channels }
     class procedure PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
                                       aChannels : Cardinal);
+
+    class function PROP_MAX_PACKET_DURATION_MS : Cardinal;
+    class function PROP_MAX_PACKET_SIZE : Cardinal;
+    class function PROP_APPLICATION : Cardinal;
+    class function PROP_COMPLEXITY : Cardinal;
+    class function PROP_HEADER_TYPE : Cardinal;
 
     class function OpusLibsLoad(const aOpusLibs : array of String) : Boolean;
     class function OpusLibsLoadDefault : Boolean;
@@ -976,7 +936,7 @@ const cOpusError = 'Opus error %d';
 
 function ope_write(user_data : pointer; const ptr : pcuchar; len : opus_int32) : integer; cdecl;
 begin
-  Result := TOpusOggEncoder(user_data).DoWrite(ptr, len);
+  Result := TOpusOggEncoder(user_data).Writer.DoWrite(ptr, len);
 end;
 
 function ope_close({%H-}user_data : pointer): integer; cdecl;
@@ -986,22 +946,39 @@ end;
 
 function opd_read_func(_stream : pointer; _ptr : pcuchar; _nbytes : Integer) : Integer; cdecl;
 begin
-  Result := TOpusOggDecoder(_stream).DoRead(_ptr, _nbytes);
+  Result := TOpusOggDecoder(_stream).Reader.DoRead(_ptr, _nbytes);
 end;
 
 function opd_seek_func(_stream : pointer;_offset:opus_int64;_whence:Integer): Integer; cdecl;
 begin
-  Result := TOpusOggDecoder(_stream).DoSeek(_offset, _whence);
+  Result := TOpusOggDecoder(_stream).Reader.DoSeek(_offset, _whence);
 end;
 
 function opd_tell_func(_stream : pointer):opus_int64;  cdecl;
 begin
-  Result := TOpusOggDecoder(_stream).DoTell;
+  Result := TOpusOggDecoder(_stream).Reader.DoTell;
 end;
 
 function opd_close_func({%H-}_stream : pointer):integer; cdecl;
 begin
   result := 0;
+end;
+
+{ TOpusOggStreamDecoder }
+
+constructor TOpusOggStreamDecoder.Create(aStream : TStream);
+begin
+  InitReader(TOGLSound.NewStreamReader(aStream));
+  inherited Create;
+end;
+
+{ TOpusOggStreamEncoder }
+
+constructor TOpusOggStreamEncoder.Create(aStream : TStream;
+  aProps : ISoundEncoderProps; aComments : IOGGComment);
+begin
+  InitWriter(TOGLSound.NewStreamWriter(aStream));
+  inherited Create(aProps, aComments);
 end;
 
 { TOpusEncoderDecoder }
@@ -1404,30 +1381,57 @@ begin
   Result := fDecoder.BytesToSamples(ReadByteDataRaw(aPCM, aBytes, true), true);
 end;
 
+function TOpusStreamDecoder.ReadData(aPCM : Pointer; aFrame : ISoundFrameSize
+  ) : ISoundFrameSize;
+begin
+  Result := TOGLSound.NewEmptyFrame(aFrame);
+  Result.IncBytes(ReadByteDataRaw(aPCM, aFrame.AsBytes,
+                                  aFrame.SampleSize in [ss32bit, ssFloat]));
+end;
+
 { TOpusStreamEncoder }
 
 procedure TOpusStreamEncoder.Initialize(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Single;
-  aApp : TOpusEncApp);
+  aProp : ISoundEncoderProps);
+var
+  aApp : TOpusEncApp;
+  aMode : TSoundEncoderMode;
+  aBitrate : Cardinal;
+  aComplexity : Single;
 begin
   fStream := aStream;
 
-  fEncoder := TOpusEncoder.Create(aFreq, aChannels, aApp);
+  aMode    := aProp.GetDefault(TOGLSound.PROP_MODE,    oemVBR);
+  aBitrate := aProp.GetDefault(TOGLSound.PROP_BITRATE, 128000);
+  aApp     := aProp.GetDefault(TOpus.PROP_APPLICATION, oeaAudio);
+  fMaxPacketDurationMs := aProp.GetDefault(TOpus.PROP_MAX_PACKET_DURATION_MS, 0);
+  if fMaxPacketDurationMs > 0 then
+  begin
+    fMaxDataBufferSize := TOpus.MinBufferSizeFloat(aProp.Frequency,
+                                                   aProp.Channels,
+                                                   fMaxPacketDurationMs);
+  end else
+  begin
+    fMaxDataBufferSize := aProp.GetDefault(TOpus.PROP_MAX_PACKET_SIZE, ofs_120ms);
+    fMaxPacketDurationMs := 120;
+  end;
+  fPacketHeaderType := aProp.GetDefault(TOpus.PROP_HEADER_TYPE, ophState);
+  aComplexity := aProp.Quality;
+  if aComplexity < 1.0 then aComplexity := aComplexity * 10.0;
+  if aComplexity < 0 then aComplexity := 0;
+  if aComplexity > 10 then aComplexity := 10;
+
+  fEncoder := TOpusEncoder.Create(aProp.Frequency, aProp.Channels, aApp);
   fEncoder.SetBitrate(aBitrate);
   fEncoder.SetMode(aMode);
-  fEncoder.SetComplexity(aComplexity);
+  fEncoder.SetComplexity(Round(aComplexity));
 
   fRepacker := TOpusRepacketizer.Create;
   fRepackerDurationMs := 0;
-  fMaxPacketDurationMs := aMaxPacketDurationMs;
 
-  fMaxDataBufferSize := TOpus.MinBufferSizeFloat(aFreq, aChannels,
-                                                 aMaxPacketDurationMs);
   fBuffers := TFastPointerCollection.Create;
 
   FOnPacketWriteHeader := @InternalWriteHeader;
-  fPacketHeaderType := ophState;
   fLastDuration := ofs_Error;
 end;
 
@@ -1545,41 +1549,9 @@ begin
 end;
 
 constructor TOpusStreamEncoder.Create(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Byte);
+  aProps : ISoundEncoderProps);
 begin
-  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
-                       Single(aMaxPacketDurationMs), oeaAudio);
-end;
-
-constructor TOpusStreamEncoder.Create(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketSize : TOpusFrameSize);
-begin
-  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
-                       TOpus.FrameSizeToTime(aMaxPacketSize), oeaAudio);
-end;
-
-constructor TOpusStreamEncoder.Create(aStream : TStream; aFreq : Cardinal;
-  aChannels : Cardinal; aApp : TOpusEncApp; aMaxPacketSize : TOpusFrameSize);
-begin
-  Initialize(aStream, oemVBR, aChannels, aFreq, 128000, 5,
-                       TOpus.FrameSizeToTime(aMaxPacketSize), aApp);
-end;
-
-constructor TOpusStreamEncoder.Create(aStream : TStream; aFreq : Cardinal;
-  aChannels : Cardinal; aApp : TOpusEncApp);
-begin
-  Initialize(aStream, oemVBR, aChannels, aFreq, 128000, 5,
-                       TOpus.FrameSizeToTime(ofs_120ms), aApp);
-end;
-
-constructor TOpusStreamEncoder.Create(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer);
-begin
-  Initialize(aStream, aMode, aChannels, aFreq, aBitrate, aComplexity,
-                       TOpus.FrameSizeToTime(ofs_120ms), oeaAudio);
+  Initialize(aStream, aProps);
 end;
 
 destructor TOpusStreamEncoder.Destroy;
@@ -1627,6 +1599,17 @@ function TOpusStreamEncoder.WriteDataFloat(aPCM : Pointer; aBytes : Integer
   ) : Integer;
 begin
   Result := WriteFrame(aPCM, fEncoder.BytesToFrameSize(aBytes, true), true);
+end;
+
+function TOpusStreamEncoder.WriteData(aPCM : Pointer; aFrame : ISoundFrameSize
+  ) : ISoundFrameSize;
+var
+  Sz : Integer;
+begin
+  Sz := WriteFrame(aPCM, fEncoder.SamplesToFrameSize(aFrame.AsSamples),
+                         aFrame.SampleSize in [ss32bit, ssFloat]);
+  Result := TOGLSound.NewEmptyFrame(aFrame);
+  Result.IncSamples(Sz);
 end;
 
 procedure TOpusStreamEncoder.Close;
@@ -1856,7 +1839,7 @@ begin
     raise EOpus.Create(cRes);
 end;
 
-procedure TOpusEncoder.SetMode(mode : TOGGSoundEncoderMode);
+procedure TOpusEncoder.SetMode(mode : TSoundEncoderMode);
 var cRes : Integer;
 begin
   case mode of
@@ -2011,18 +1994,16 @@ end;
 
 { TOpusFile }
 
-function TOpusFile.InitEncoder(aMode : TOGGSoundEncoderMode;
-  aChannels : Cardinal; aFreq, aBitrate, aBitdepth : Cardinal;
-  aQuality : Single; aComments : IOGGComment) : TOGGSoundEncoder;
+function TOpusFile.InitEncoder(aProps : ISoundEncoderProps;
+  aComments : ISoundComment) : ISoundEncoder;
 begin
-  Result := TOpus.NewOggStreamEncoder(Stream, aMode, aChannels,
-                                      aFreq, aBitrate, Round(aQuality * 10),
-                                      aComments);
+  Result := TOpus.NewOggStreamEncoder(Stream, aProps,
+                                      aComments as IOGGComment) as ISoundEncoder;
 end;
 
-function TOpusFile.InitDecoder : TOGGSoundDecoder;
+function TOpusFile.InitDecoder : ISoundDecoder;
 begin
-  Result := TOpus.NewOggStreamDecoder(Stream);
+  Result := TOpus.NewOggStreamDecoder(Stream) as ISoundDecoder;
 end;
 
 { TOpusOggDecoder }
@@ -2102,15 +2083,11 @@ begin
   Result := fComm;
 end;
 
-function TOpusOggDecoder.DataMode : TOGGSoundDataMode;
+function TOpusOggDecoder.ReadData(Buffer : Pointer; Count : ISoundFrameSize;
+  Par : Pointer) : ISoundFrameSize;
 begin
-  Result := odmSamples;
-end;
-
-function TOpusOggDecoder.ReadData(Buffer : Pointer; Count : Integer;
-  Par : Pointer) : Integer;
-begin
-  Result := op_read(fRef, Buffer, Count, nil);
+  Result := TOGLSound.NewEmptyFrame(Count);
+  Result.IncSamples(op_read(fRef, Buffer, Count.AsSamples, nil));
 end;
 
 procedure TOpusOggDecoder.ResetToStart;
@@ -2123,92 +2100,29 @@ begin
   Result := Assigned(fRef);
 end;
 
-{ TOpusOggStreamDecoder }
-
-function TOpusOggStreamDecoder.DoRead(_ptr : Pointer; _nbytes : Integer
-  ) : Integer;
-begin
-  if (_nbytes <= 0) then begin Result := 0; Exit; end;
-  try
-    Result := Int64(fStream.Read(_ptr^, _nbytes));
-  except
-    Result := 0;
-  end;
-end;
-
-function TOpusOggStreamDecoder.DoSeek(_offset : Int64; _whence : Integer
-  ) : Integer;
-begin
-  try
-    with fStream do
-      case _whence of
-        0: Seek(_offset, soBeginning);
-        1: Seek(_offset, soCurrent);
-        2: Seek(_offset, soEnd);
-      end;
-    result := 0;
-  except
-    result := -1;
-  end;
-end;
-
-function TOpusOggStreamDecoder.DoTell : Int64;
-begin
-  try
-    result := fStream.Position;
-  except
-    result := -1;
-  end;
-end;
-
-constructor TOpusOggStreamDecoder.Create(aStream : TStream);
-begin
-  fStream := aStream;
-  Inherited Create;
-end;
-
-{ TOpusOggStreamEncoder }
-
-function TOpusOggStreamEncoder.DoWrite(Buffer : Pointer; BufferSize : Integer
-  ) : Integer;
-begin
-  if (BufferSize < 0) then Exit(1);
-  if not (Assigned(Buffer) and (BufferSize > 0)) then Exit(1);
-  fStream.Write(Buffer^, BufferSize);
-  Result := 0;
-end;
-
-constructor TOpusOggStreamEncoder.Create(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aComments : IOGGComment);
-begin
-  fStream := aStream;
-  inherited Create(aMode, aChannels, aFreq, aBitrate, aComplexity, aComments);
-end;
-
 { TOpusOggEncoder }
 
-procedure TOpusOggEncoder.Init(aMode : TOGGSoundEncoderMode;
-  aChannels : Cardinal; aFreq, aBitrate, aBitdepth : Cardinal;
-  aQuality : Single; aComments : IOGGComment);
+procedure TOpusOggEncoder.Init(aProps : ISoundEncoderProps;
+  aComments : ISoundComment);
 var
-  ope_error    : integer;
-  ctl_serial   : opus_int32;
+  ope_error : integer;
+  ctl_serial : opus_int32;
+  q : Single;
 begin
-  fChannels := achannels;
-  fFreq := aFreq;
+  fChannels := aProps.Channels;
+  fFreq := aProps.Frequency;
 
   fenc_callbacks.close := @ope_close;
   fenc_callbacks.write := @ope_write;
 
   if Assigned(aComments) then
-    fComm := aComments else
+    fComm := aComments as IOGGComment else
     fComm := TOpus.NewEncComment;
 
   fRef := ope_encoder_create_callbacks(@fenc_callbacks,
                                        Self,
                                        fComm.Ref,
-                                       aFreq,
+                                       fFreq,
                                        fChannels,
                                        0,
                                        @ope_error);
@@ -2217,9 +2131,12 @@ begin
     ctl_serial := Abs(Random(Int64(Now)));
     ope_encoder_ctl_set_serialno(fRef, ctl_serial);
 
-    SetBitrate(aBitrate);
-    SetMode(aMode);
-    SetQuality(aQuality);
+    q := aProps.Quality;
+    if q < 1 then q := q * 10.0;
+
+    SetBitrate(aProps.Bitrate);
+    SetMode(aProps.Mode);
+    SetQuality(q);
   end else
     raise EOpus.CreateFmt(cOpusError, [ope_error]);
 end;
@@ -2231,9 +2148,9 @@ begin
   fComm := nil;
 end;
 
-function TOpusOggEncoder.GetBitdepth : Cardinal;
+function TOpusOggEncoder.GetSampleSize : TSoundSampleSize;
 begin
-  Result := 16;
+  Result := ss16bit;
 end;
 
 function TOpusOggEncoder.GetChannels : Cardinal;
@@ -2262,7 +2179,7 @@ begin
   Result := Single(v) / 10.0;
 end;
 
-function TOpusOggEncoder.GetMode : TOGGSoundEncoderMode;
+function TOpusOggEncoder.GetMode : TSoundEncoderMode;
 var
   v : opus_int32;
 begin
@@ -2280,7 +2197,7 @@ begin
   ope_encoder_ctl_set_bitrate(fRef, opus_int32(AValue));
 end;
 
-procedure TOpusOggEncoder.SetMode(AValue : TOGGSoundEncoderMode);
+procedure TOpusOggEncoder.SetMode(AValue : TSoundEncoderMode);
 begin
   if (AValue = oemCBR) then
   begin
@@ -2296,7 +2213,7 @@ procedure TOpusOggEncoder.SetQuality(AValue : Single);
 var
   ctl_complex : opus_int32;
 begin
-  ctl_complex := Round(AValue * 10.0);
+  ctl_complex := Round(AValue);
   if ctl_complex > 10 then ctl_complex := 10;
   if ctl_complex < 0  then ctl_complex := 0;
   ope_encoder_ctl_set_complexity(fRef, ctl_complex);
@@ -2307,12 +2224,10 @@ begin
   Result := fRef;
 end;
 
-constructor TOpusOggEncoder.Create(aMode : TOGGSoundEncoderMode;
-  aChannels : Cardinal; aFreq, aBitrate : Cardinal; aComplexity : Integer;
+constructor TOpusOggEncoder.Create(aProps : ISoundEncoderProps;
   aComments : IOGGComment);
 begin
-  Init(aMode, aChannels, aFreq, aBitrate, 16, Single(aComplexity) / 10.0,
-              aComments);
+  Init(aProps, aComments);
 end;
 
 destructor TOpusOggEncoder.Destroy;
@@ -2326,15 +2241,15 @@ begin
   Result := fComm;
 end;
 
-function TOpusOggEncoder.DataMode : TOGGSoundDataMode;
+function TOpusOggEncoder.WriteData(Buffer : Pointer; Count : ISoundFrameSize;
+  Par : Pointer) : ISoundFrameSize;
+var res : Integer;
 begin
-  Result := odmSamples;
-end;
-
-function TOpusOggEncoder.WriteData(Buffer : Pointer; Count : Integer;
-  Par : Pointer) : Integer;
-begin
-  Result := ope_encoder_write(fRef, Buffer, Count);
+  res := ope_encoder_write(fRef, Buffer, Count.AsSamples);
+  if res = 0 then
+    Result := TOGLSound.NewFrame(Count)
+  else
+    Result := TOGLSound.NewErrorFrame;
 end;
 
 procedure TOpusOggEncoder.WriteHeader(Par : Pointer);
@@ -2457,6 +2372,17 @@ end;
 class function TOpus.RefDecHead(src : pOpusHead) : IOpusDecHead;
 begin
   Result := TRefOpusDecHead.Create(src) as IOpusDecHead;
+end;
+
+class function TOpus.FrameFromDuration(aFreq : Cardinal; aChannels : Cardinal;
+  aDurationMs : TOpusFrameSize; isfloat : Boolean) : ISoundFrameSize;
+var
+  SS : TSoundSampleSize;
+begin
+  if isfloat then SS := ssFloat else SS := ss16bit;
+  Result := TOGLSound.FrameFromDuration(aFreq, aChannels,
+                                               SS,
+                                               FrameSizeToTime(aDurationMs));
 end;
 
 class function TOpus.TimeToHighFrameSize(dur : Single) : TOpusFrameSize;
@@ -2727,15 +2653,9 @@ begin
 end; }
 
 class function TOpus.NewOggStreamEncoder(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aComments : IOGGComment
-  ) : TOpusOggEncoder;
+  aProps : ISoundEncoderProps; aComments : IOGGComment) : TOpusOggEncoder;
 begin
-  Result := TOpusOggStreamEncoder.Create(aStream, aMode,
-                                                  achannels,
-                                                  aFreq, abitrate,
-                                                  aComplexity,
-                                                  aComments);
+  Result := TOpusOggStreamEncoder.Create(aStream, aProps, aComments);
 end;
 
 class function TOpus.NewOggStreamDecoder(aStream : TStream) : TOpusOggDecoder;
@@ -2744,14 +2664,9 @@ begin
 end;
 
 class function TOpus.NewOpusStreamEncoder(aStream : TStream;
-  aMode : TOGGSoundEncoderMode; aChannels : Cardinal; aFreq,
-  aBitrate : Cardinal; aComplexity : Integer; aMaxPacketDurationMs : Byte
-  ) : TOpusStreamEncoder;
+  aProps : ISoundEncoderProps) : TOpusStreamEncoder;
 begin
-  Result := TOpusStreamEncoder.Create(aStream, aMode,
-                                               aChannels, aFreq,
-                                               aBitrate, aComplexity,
-                                               aMaxPacketDurationMs);
+  Result := TOpusStreamEncoder.Create(aStream, aProps);
 end;
 
 class function TOpus.NewOpusStreamDecoder(aStream : TStream; aFreq,
@@ -2768,6 +2683,31 @@ begin
   FillByte(m^, aChannels * sizeof(cfloat), 0);
   opus_pcm_soft_clip(aBuffer, aSamplesCount, aChannels, m);
   Freemem(m);
+end;
+
+class function TOpus.PROP_MAX_PACKET_DURATION_MS : Cardinal;
+begin
+  Result := $011;
+end;
+
+class function TOpus.PROP_MAX_PACKET_SIZE : Cardinal;
+begin
+  Result := $012;
+end;
+
+class function TOpus.PROP_APPLICATION : Cardinal;
+begin
+  Result := $013;
+end;
+
+class function TOpus.PROP_COMPLEXITY : Cardinal;
+begin
+  Result := TOGLSound.PROP_QUALITY;
+end;
+
+class function TOpus.PROP_HEADER_TYPE : Cardinal;
+begin
+  Result := $014;
 end;
 
 class function TOpus.OpusLibsLoad(const aOpusLibs : array of String
