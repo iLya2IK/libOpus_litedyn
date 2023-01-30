@@ -37,6 +37,9 @@ const // the name of source opus-ogg file
       {$endif}
       // duration of data chunk to encode
       cDur : TOpusFrameSize = ofs_20ms;
+      {$ifdef DEBUG}
+      cHeapTrace = 'heaptrace.trc';
+      {$endif}
 
 var
   oggf : TOpusFile; // interface to encode/decode Opus-Ogg data
@@ -49,6 +52,12 @@ var
   len : ISoundFrameSize;         // length of writed/read data
   aEncProp : ISoundEncoderProps;
 begin
+  {$ifdef DEBUG}
+  if FileExists(cHeapTrace) then
+     DeleteFile(cHeapTrace);
+  SetHeapTraceOutput(cHeapTrace);
+  {$endif}
+
   // Initialize opus, opusenc, opusfile interfaces - load libraries
   {$ifdef Windows}
   if TOpus.OpusLibsLoad(cOpusDLL) then

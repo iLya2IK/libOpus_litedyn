@@ -72,7 +72,7 @@ type
 
   { IOpusEncComment }
 
-  IOpusEncComment = interface(IOGGComment)
+  IOpusEncComment = interface(ISoundComment)
   ['{8A2DEE25-1796-47B4-A1FC-1FBEF617C6B0}']
   procedure AddPicture(const filename: String; aPic : TAPICType; const descr : String);
   procedure AddPictureFromMem(const mem : Pointer; sz : Integer; aPic : TAPICType; const descr : String);
@@ -86,7 +86,7 @@ type
 
   procedure Init;
   procedure Done;
-  procedure Parse(src : IOGGComment; const tag : String);
+  procedure Parse(src : ISoundComment; const tag : String);
 
   function APICType : TAPICType;
   function MIMEType : String;
@@ -283,46 +283,57 @@ type
 
   { TRefOpusDecComment }
 
-  TRefOpusDecComment = class(TInterfacedObject, IOGGComment)
+  TRefOpusDecComment = class(TNativeVorbisCommentCloneable)
   private
     FRef : pOpusTags;
-    procedure Init;
-    procedure Done;
+  protected
+    procedure Init; override;
+    procedure Done; override;
+
+    procedure SetNativeVendor(v : PChar); override;
+    function GetNativeVendor : PChar; override;
+    function GetNativeComment(index : integer) : PChar; override;
+    function GetNativeCommentLength(index : integer) : Int32; override;
+    function GetNativeCommentCount : Int32; override;
   public
-    function Ref : Pointer; inline;
+    function Ref : Pointer; override;
 
-    constructor Create(aRef : pOpusTags);
+    constructor Create(aRef : pOpusTags); overload;
 
-    procedure Add(const comment: String);
-    procedure AddTag(const tag, value: String);
-    function Query(const tag: String; index: integer): String;
-    function QueryCount(const tag: String): integer;
+    procedure Add(const comment: String); override;
+    procedure AddTag(const tag, value: String); override;
+    function Query(const tag: String; index: integer): String; override;
+    function QueryCount(const tag: String): integer; override;
   end;
 
   { TUniqOpusDecComment }
 
   TUniqOpusDecComment = class(TRefOpusDecComment)
   public
-    constructor Create;
     destructor Destroy; override;
   end;
 
   { TRefOpusEncComment }
 
-  TRefOpusEncComment = class(TInterfacedObject, IOpusEncComment)
+  TRefOpusEncComment = class(TSoundCommentCloneable, IOpusEncComment)
   private
     FRef : pOggOpusComments;
-    procedure Init;
-    procedure Done;
+  protected
+    procedure Init; override;
+    procedure Done; override;
+    function GetVendor : String; override;
+    procedure SetVendor(const S : String); override;
   public
-    function Ref : Pointer; inline;
+    function Ref : Pointer; override;
 
-    constructor Create(aRef : pOggOpusComments);
+    constructor Create(aRef : pOggOpusComments); overload;
 
-    procedure Add(const comment: String);
-    procedure AddTag(const tag, value: String);
-    function Query(const {%H-}tag: String; {%H-}index: integer): String;
-    function QueryCount(const {%H-}tag: String): integer;
+    procedure Add(const comment: String); override;
+    procedure AddTag(const tag, value: String); override;
+    function TagsCount : Integer; override;
+    function GetTag(index : integer) : String; override;
+    function Query(const tag: String; index: integer): String; override;
+    function QueryCount(const tag: String): integer; override;
     procedure AddPicture(const filename: String; aPic : TAPICType; const descr : String);
     procedure AddPictureFromMem(const mem : Pointer; sz : Integer; aPic : TAPICType; const descr : String);
   end;
@@ -331,8 +342,7 @@ type
 
   TUniqOpusEncComment = class(TRefOpusEncComment)
   public
-    constructor Create;
-    constructor Create(src : IOpusEncComment);
+    constructor Create(src : IOpusEncComment); overload;
     destructor Destroy; override;
   end;
 
@@ -610,7 +620,7 @@ type
   TOpusOggEncoder = class(TSoundAbstractEncoder)
   private
     fRef : pOggOpusEnc;
-    fComm : IOGGComment;
+    fComm : ISoundComment;
     fChannels : Cardinal;
     fFreq : Cardinal;
     fenc_callbacks : OpusEncCallbacks;
@@ -634,10 +644,10 @@ type
     function Ref : pOggOpusEnc; inline;
 
     constructor Create(aProps : ISoundEncoderProps;
-                       aComments : IOGGComment);
+                       aComments : ISoundComment);
     destructor Destroy; override;
 
-    function  Comments : IOGGComment; override;
+    function  Comments : ISoundComment; override;
 
     function  WriteData(Buffer : Pointer; Count : ISoundFrameSize;
                        {%H-}Par : Pointer) : ISoundFrameSize; override;
@@ -652,7 +662,7 @@ type
   TOpusOggStreamEncoder = class(TOpusOggEncoder)
   public
     constructor Create(aStream : TStream;
-      aProps : ISoundEncoderProps; aComments : IOGGComment);
+      aProps : ISoundEncoderProps; aComments : ISoundComment);
   end;
 
   { TOpusOggDecoder }
@@ -661,7 +671,7 @@ type
   private
     fRef  : pOggOpusFile;
     fHead : IOpusDecHead;
-    fComm : IOGGComment;
+    fComm : ISoundComment;
     fdec_callbacks : OpusFileCallbacks;
   protected
     procedure Init; override;
@@ -678,7 +688,7 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    function  Comments : IOGGComment; override;
+    function  Comments : ISoundComment; override;
 
     function ReadData(Buffer : Pointer; Count : ISoundFrameSize;
                        {%H-}Par : Pointer) : ISoundFrameSize; override;
@@ -728,6 +738,7 @@ type
     {  Create the new Opus encoder comment
        @returns New IOpusEncComment interface }
     class function NewEncComment : IOpusEncComment; overload;
+    class function NewEncComment(src : ISoundComment) : IOpusEncComment; overload;
     {  Create copy of Opus encoder comment
        @param src Encoder comment interface to copy from
        @returns New IOpusEncComment interface }
@@ -737,12 +748,13 @@ type
        @returns New IOpusEncComment interface }
     class function RefEncComment(src : pOggOpusComments) : IOpusEncComment;
     {  Create the new Opus decoder comment
-       @returns New IOGGComment interface }
-    class function NewDecComment : IOGGComment;
+       @returns New ISoundComment interface }
+    class function NewDecComment : ISoundComment;
+    class function NewDecComment(src : ISoundComment) : ISoundComment;
     {  Create the new Opus decoder comment referenced to native pOpusTags
        @param src Native decoder comment to reference to
-       @returns New IOGGComment interface }
-    class function RefDecComment(src : pOpusTags) : IOGGComment;
+       @returns New ISoundComment interface }
+    class function RefDecComment(src : pOpusTags) : ISoundComment;
     {  Create the new Opus decoder header referenced to native pOpusHead
        @param src Native decoder header to reference to
        @returns New IOpusDecHead interface }
@@ -862,7 +874,7 @@ type
        @returns New TOpusOggEncoder object }
     class function NewOggStreamEncoder(aStream : TStream;
                        aProps : ISoundEncoderProps;
-                       aComments : IOGGComment) : TOpusOggEncoder;
+                       aComments : ISoundComment) : TOpusOggEncoder;
     {  Creates an Opus decoder that unpacks data packets from an OGG container.
        @param aStream A reference to the stream object in which the decoded
                       data should be stored
@@ -990,7 +1002,7 @@ end;
 { TOpusOggStreamEncoder }
 
 constructor TOpusOggStreamEncoder.Create(aStream : TStream;
-  aProps : ISoundEncoderProps; aComments : IOGGComment);
+  aProps : ISoundEncoderProps; aComments : ISoundComment);
 begin
   InitStream(TOGLSound.NewDataStream(aStream, [sdpForceNotSeekable]));
   inherited Create(aProps, aComments);
@@ -1889,11 +1901,6 @@ end;
 
 { TUniqOpusDecComment }
 
-constructor TUniqOpusDecComment.Create;
-begin
-  Init;
-end;
-
 destructor TUniqOpusDecComment.Destroy;
 begin
   Done;
@@ -1917,6 +1924,32 @@ begin
   end;
 end;
 
+procedure TRefOpusDecComment.SetNativeVendor(v : PChar);
+begin
+  if Assigned(fREf^.vendor) then FreeMemAndNil(fREf^.vendor);
+  fREf^.vendor := pcchar(v);
+end;
+
+function TRefOpusDecComment.GetNativeVendor : PChar;
+begin
+  Result := pchar(fREf^.vendor);
+end;
+
+function TRefOpusDecComment.GetNativeComment(index : integer) : PChar;
+begin
+  Result := pchar(fREf^.user_comments[index]);
+end;
+
+function TRefOpusDecComment.GetNativeCommentLength(index : integer) : Int32;
+begin
+  Result := fREf^.comment_lengths[index];
+end;
+
+function TRefOpusDecComment.GetNativeCommentCount : Int32;
+begin
+  Result := fREf^.comments;
+end;
+
 function TRefOpusDecComment.Ref : Pointer;
 begin
   Result := fRef;
@@ -1930,11 +1963,13 @@ end;
 procedure TRefOpusDecComment.Add(const comment : String);
 begin
   opus_tags_add_comment(fRef, pcchar( PChar(comment) ));
+  inherited Add(comment);
 end;
 
 procedure TRefOpusDecComment.AddTag(const tag, value : String);
 begin
   opus_tags_add(fRef, pcchar( PChar(tag) ), pcchar( PChar(value) ));
+  inherited AddTag(tag, value);
 end;
 
 function TRefOpusDecComment.Query(const tag : String; index : integer) : String;
@@ -2013,7 +2048,7 @@ function TOpusFile.InitEncoder(aProps : ISoundEncoderProps;
   aComments : ISoundComment) : ISoundEncoder;
 begin
   Result := TOpus.NewOggStreamEncoder(Stream, aProps,
-                                      aComments as IOGGComment) as ISoundEncoder;
+                                      aComments as ISoundComment) as ISoundEncoder;
 end;
 
 function TOpusFile.InitDecoder : ISoundDecoder;
@@ -2093,7 +2128,7 @@ begin
   inherited Destroy;
 end;
 
-function TOpusOggDecoder.Comments : IOGGComment;
+function TOpusOggDecoder.Comments : ISoundComment;
 begin
   Result := fComm;
 end;
@@ -2215,7 +2250,7 @@ begin
   fenc_callbacks.write := @ope_write;
 
   if Assigned(aComments) then
-    fComm := aComments as IOGGComment else
+    fComm := aComments as ISoundComment else
     fComm := TOpus.NewEncComment;
 
   fRef := ope_encoder_create_callbacks(@fenc_callbacks,
@@ -2324,7 +2359,7 @@ begin
 end;
 
 constructor TOpusOggEncoder.Create(aProps : ISoundEncoderProps;
-  aComments : IOGGComment);
+  aComments : ISoundComment);
 begin
   Init(aProps, aComments);
 end;
@@ -2335,7 +2370,7 @@ begin
   inherited Destroy;
 end;
 
-function TOpusOggEncoder.Comments : IOGGComment;
+function TOpusOggEncoder.Comments : ISoundComment;
 begin
   Result := fComm;
 end;
@@ -2368,11 +2403,6 @@ end;
 
 { TUniqOpusEncComment }
 
-constructor TUniqOpusEncComment.Create;
-begin
-  Init;
-end;
-
 constructor TUniqOpusEncComment.Create(src : IOpusEncComment);
 begin
   fRef := ope_comments_copy(src.Ref);
@@ -2397,7 +2427,17 @@ begin
   fRef := nil;
 end;
 
-function TRefOpusEncComment.Ref : pOggOpusComments;
+function TRefOpusEncComment.GetVendor : String;
+begin
+  Result := '';
+end;
+
+procedure TRefOpusEncComment.SetVendor(const S : String);
+begin
+  // do nothing
+end;
+
+function TRefOpusEncComment.Ref : Pointer;
 begin
   Result := fRef;
 end;
@@ -2415,6 +2455,16 @@ end;
 procedure TRefOpusEncComment.AddTag(const tag, value : String);
 begin
   ope_comments_add(fRef, pcchar(pchar( tag )), pcchar(pchar( value )));
+end;
+
+function TRefOpusEncComment.TagsCount : Integer;
+begin
+  Result := 0;
+end;
+
+function TRefOpusEncComment.GetTag(index : integer) : String;
+begin
+  Result := '';
 end;
 
 function TRefOpusEncComment.Query(const tag : String; index : integer) : String;
@@ -2448,6 +2498,11 @@ begin
   Result := TUniqOpusEncComment.Create as IOpusEncComment;
 end;
 
+class function TOpus.NewEncComment(src : ISoundComment) : IOpusEncComment;
+begin
+  Result := TUniqOpusEncComment.CreateFromInterface(src) as IOpusEncComment;
+end;
+
 class function TOpus.NewEncComment(src : IOpusEncComment) : IOpusEncComment;
 begin
   Result := TUniqOpusEncComment.Create(src) as IOpusEncComment;
@@ -2458,14 +2513,19 @@ begin
   Result := TRefOpusEncComment.Create(src) as IOpusEncComment;
 end;
 
-class function TOpus.NewDecComment : IOGGComment;
+class function TOpus.NewDecComment : ISoundComment;
 begin
-  Result := TUniqOpusDecComment.Create as IOGGComment;
+  Result := TUniqOpusDecComment.Create as ISoundComment;
 end;
 
-class function TOpus.RefDecComment(src : pOpusTags) : IOGGComment;
+class function TOpus.NewDecComment(src : ISoundComment) : ISoundComment;
 begin
-  Result := TRefOpusDecComment.Create(src) as IOGGComment;
+  Result := TUniqOpusDecComment.CreateFromInterface(src) as ISoundComment;
+end;
+
+class function TOpus.RefDecComment(src : pOpusTags) : ISoundComment;
+begin
+  Result := TRefOpusDecComment.Create(src) as ISoundComment;
 end;
 
 class function TOpus.RefDecHead(src : pOpusHead) : IOpusDecHead;
@@ -2752,7 +2812,7 @@ begin
 end; }
 
 class function TOpus.NewOggStreamEncoder(aStream : TStream;
-  aProps : ISoundEncoderProps; aComments : IOGGComment) : TOpusOggEncoder;
+  aProps : ISoundEncoderProps; aComments : ISoundComment) : TOpusOggEncoder;
 begin
   Result := TOpusOggStreamEncoder.Create(aStream, aProps, aComments);
 end;

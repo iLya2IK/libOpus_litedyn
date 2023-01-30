@@ -112,6 +112,7 @@ end;
 function TOALOpusDataRecorder.SaveToFile(const Fn : String) : Boolean;
 var
   channels : Cardinal;
+  comments : ISoundComment;
 begin
   case Format of
   oalfMono8 :
@@ -124,12 +125,16 @@ begin
     channels := 2;
   end;
 
+  comments := TOpus.NewEncComment;
+  comments.Vendor := 'OALOpusDataRecorder';
+  comments.AddTag(COMMENT_ARTIST, 'Your voice');
+  comments.AddTag(COMMENT_TITLE,  'Record');
   Result := FStream.SaveToFile(Fn,
                 TOGLSound.EncProps([TOGLSound.PROP_MODE, oemVBR,
                                     TOGLSound.PROP_CHANNELS, channels,
                                     TOGLSound.PROP_FREQUENCY, Frequency,
                                     TOGLSound.PROP_QUALITY, 5,
-                                    TOGLSound.PROP_BITRATE, 128000]), nil);
+                                    TOGLSound.PROP_BITRATE, 128000]), comments);
 end;
 
 function TOALOpusDataRecorder.SaveToStream(Str : TStream) : Boolean;
@@ -158,12 +163,20 @@ const // name of file to capture data
                                            '..\libs\opusenc.dll',
                                            '..\libs\opusfile.dll');
       {$endif}
+      {$ifdef DEBUG}
+      cHeapTrace = 'heaptrace.trc';
+      {$endif}
 
 var
   OALCapture : TOALCapture; // OpenAL audio recoder
   OALPlayer  : TOALPlayer;  // OpenAL audio player
   dt: Integer;
 begin
+  {$ifdef DEBUG}
+  if FileExists(cHeapTrace) then
+     DeleteFile(cHeapTrace);
+  SetHeapTraceOutput(cHeapTrace);
+  {$endif}
   // Open Opus, Ogg, OpenAL libraries and initialize interfaces
   {$ifdef Windows}
   if TOpenAL.OALLibsLoad([cOALDLL]) and TOpus.OpusLibsLoad(cOpusDLL) then
