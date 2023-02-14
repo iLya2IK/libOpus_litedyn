@@ -43,8 +43,8 @@ const // the name of source opus-ogg file
 
 var
   oggf : TOpusFile; // interface to encode/decode Opus-Ogg data
-  pack_enc : TOpusStreamEncoder; // opus custom streaming encoder
-  pack_dec : TOpusStreamDecoder; // opus custom streaming decoder
+  pack_enc : ISoundStreamEncoder; // opus custom streaming encoder
+  pack_dec : ISoundStreamDecoder; // opus custom streaming decoder
   aFileStream : TFileStream;     // TFileStream linked to cStreamFile
   Buffer : Pointer;              // intermediate buffer
   bitrate : Integer;             // current bitrate
@@ -101,7 +101,7 @@ begin
             // to change header type set the PacketHeaderType property
             //   or set another value for TOpus.PROP_HEADER_TYPE (look above)
             //   or redefine the OnPacketWriteHeader property
-            pack_enc := TOpus.NewOpusStreamEncoder(aFileStream, aEncProp);
+            pack_enc := TOpus.NewStreamEncoder(aFileStream, aEncProp);
             try
               repeat
                 // read decoded pcm data from opus-ogg file
@@ -114,14 +114,14 @@ begin
                   // the encoded frames are automatically packaged into a set of
                   // packets, and then written to the stream file as a sequence:
                   // [packet1_header][paket1_data][packet2_header][paket2_data]...[packetN_header][paketN_data]
-                  pack_enc.WriteData(Buffer, len);
+                  pack_enc.WriteData(Buffer, len, nil);
                 end;
               until len.Less(frame_size);
               // complete the stream formation process.
               // write the packets that are in the cache.
-              pack_enc.Close;
+              pack_enc.Close(nil);
             finally
-              pack_enc.Free;
+              pack_enc := nil;
             end;
           finally
             aFileStream.Free;
@@ -150,14 +150,14 @@ begin
               //                        len, freq, numofchannels: 6 bytes total)
               // to change header type set the PacketHeaderType property
               // or redefine the OnPacketReadHeader property
-              pack_dec := TOpus.NewOpusStreamDecoder(aFileStream,
+              pack_dec := TOpus.NewStreamDecoder(aFileStream,
                                                              oggf.Frequency,
                                                              oggf.Channels);
               try
                 repeat
                   // read decoded pcm data from opus streaming file
                   // len - length of decoded data in samples per channels
-                  len := pack_dec.ReadData(Buffer, frame_size);
+                  len := pack_dec.ReadData(Buffer, frame_size, nil);
 
                   if len.IsValid then begin
                     // this is where pcm data samples are encoded into the
@@ -167,7 +167,7 @@ begin
 
                 until len.Less(frame_size);
               finally
-                pack_dec.Free;
+                pack_dec := nil;
               end;
             finally
               FreeMemAndNil(Buffer);

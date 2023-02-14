@@ -127,8 +127,11 @@ begin
 
   comments := TOpus.NewEncComment;
   comments.Vendor := 'OALOpusDataRecorder';
-  comments.AddTag(COMMENT_ARTIST, 'Your voice');
-  comments.AddTag(COMMENT_TITLE,  'Record');
+  With TOGLSoundComments do
+  begin
+  comments.AddTag(TagID(COMMENT_ARTIST), 'Your voice');
+  comments.AddTag(TagID(COMMENT_TITLE),  'Record');
+  end;
   Result := FStream.SaveToFile(Fn,
                 TOGLSound.EncProps([TOGLSound.PROP_MODE, oemVBR,
                                     TOGLSound.PROP_CHANNELS, channels,

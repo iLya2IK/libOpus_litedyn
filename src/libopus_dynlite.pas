@@ -277,6 +277,7 @@ function opus_decode_float(st: pOpusDecoder; const data: pcuchar; len: opus_int3
 function opus_decoder_ctl(st: pOpusDecoder; request: cint; Args : Array of const): cint;
 function opus_decoder_ctl_set_gain(st: pOpusDecoder; val : opus_int32): cint;
 function opus_decoder_ctl_get_last_packet_duration(st: pOpusDecoder; val : popus_int32): cint;
+function opus_decoder_ctl_get_bitrate(st: pOpusDecoder; val : popus_int32): cint;
 procedure opus_decoder_destroy(st: pOpusDecoder);
 function opus_packet_parse(const data: pcuchar; len: opus_int32; out_toc: pcuchar; const frames: ppcuchar; size: popus_int16; payload_offset: pcint): cint;
 function opus_packet_get_bandwidth(const data: pcuchar): cint;
@@ -311,7 +312,7 @@ function ope_encoder_create_pull(comments: pOggOpusComments; rate: opus_int32; c
 function ope_encoder_deferred_init_with_mapping(enc: pOggOpusEnc; family: cint; streams: cint; coupled_streams: cint; const mapping: pcuchar): cint;
 function ope_encoder_write_float(enc: pOggOpusEnc; const pcm: pfloat; samples_per_channel: cint): cint;
 function ope_encoder_write(enc: pOggOpusEnc; const pcm: popus_int16; samples_per_channel: cint): cint;
-function ope_encoder_get_page(enc: pOggOpusEnc; page: pcuchar; len: popus_int32; flush: cint): cint;
+function ope_encoder_get_page(enc: pOggOpusEnc; page: ppcuchar; len: popus_int32; flush: cint): cint;
 function ope_encoder_drain(enc: pOggOpusEnc): cint;
 procedure ope_encoder_destroy(enc: pOggOpusEnc);
 function ope_encoder_chain_current(enc: pOggOpusEnc; comments: pOggOpusComments): cint;
@@ -323,6 +324,8 @@ function ope_encoder_ctl_set_serialno(enc: pOggOpusEnc; v : opus_int32): cint;
 function ope_encoder_ctl_set_bitrate(enc: pOggOpusEnc; v : opus_int32): cint;
 function ope_encoder_ctl_set_vbr(enc: pOggOpusEnc; v : opus_int32): cint;
 function ope_encoder_ctl_set_vbr_constraint(enc: pOggOpusEnc; v : opus_int32): cint;
+function ope_encoder_ctl_set_decision_delay(enc: pOggOpusEnc; v : opus_int32): cint;
+function ope_encoder_ctl_set_comment_padding(enc: pOggOpusEnc; v : opus_int32): cint;
 function ope_encoder_ctl_set_complexity(enc: pOggOpusEnc; v : opus_int32): cint;
 function ope_encoder_ctl_get_bitrate(enc: pOggOpusEnc; v : popus_int32): cint;
 function ope_encoder_ctl_get_complexity(enc: pOggOpusEnc; v : popus_int32): cint;
@@ -445,7 +448,7 @@ type
   p_ope_encoder_deferred_init_with_mapping = function(enc: pOggOpusEnc; family: cint; streams: cint; coupled_streams: cint; const mapping: pcuchar): cint; cdecl;
   p_ope_encoder_write_float = function(enc: pOggOpusEnc; const pcm: pfloat; samples_per_channel: cint): cint; cdecl;
   p_ope_encoder_write = function(enc: pOggOpusEnc; const pcm: popus_int16; samples_per_channel: cint): cint; cdecl;
-  p_ope_encoder_get_page = function(enc: pOggOpusEnc; page: pcuchar; len: popus_int32; flush: cint): cint; cdecl;
+  p_ope_encoder_get_page = function(enc: pOggOpusEnc; page: ppcuchar; len: popus_int32; flush: cint): cint; cdecl;
   p_ope_encoder_drain = function(enc: pOggOpusEnc): cint; cdecl;
   p_ope_encoder_destroy = procedure(enc: pOggOpusEnc); cdecl;
   p_ope_encoder_chain_current = function(enc: pOggOpusEnc; comments: pOggOpusComments): cint; cdecl;
@@ -1155,6 +1158,15 @@ begin
     Result := 0;
 end;
 
+function opus_decoder_ctl_get_bitrate(st : pOpusDecoder; val : popus_int32
+  ) : cint;
+begin
+  if Assigned(_opus_decoder_ctl) then
+    Result := _opus_decoder_ctl(st, OPUS_GET_BITRATE_REQUEST, val)
+  else
+    Result := 0;
+end;
+
 procedure opus_decoder_destroy(st: pOpusDecoder);
 begin
   if Assigned(_opus_decoder_destroy) then
@@ -1419,7 +1431,7 @@ begin
     Result := 0;
 end;
 
-function ope_encoder_get_page(enc: pOggOpusEnc; page: pcuchar; len: popus_int32; flush: cint): cint;
+function ope_encoder_get_page(enc: pOggOpusEnc; page: ppcuchar; len: popus_int32; flush: cint): cint;
 begin
   if Assigned(_ope_encoder_get_page) then
     Result := _ope_encoder_get_page(enc, page, len, flush)
@@ -1510,6 +1522,24 @@ function ope_encoder_ctl_set_vbr_constraint(enc : pOggOpusEnc; v : opus_int32
 begin
   if Assigned(_ope_encoder_ctl) then
     Result := _ope_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT_REQUEST, v)
+  else
+    Result := 0;
+end;
+
+function ope_encoder_ctl_set_decision_delay(enc : pOggOpusEnc; v : opus_int32
+  ) : cint;
+begin
+  if Assigned(_ope_encoder_ctl) then
+    Result := _ope_encoder_ctl(enc, OPE_SET_DECISION_DELAY_REQUEST, v)
+  else
+    Result := 0;
+end;
+
+function ope_encoder_ctl_set_comment_padding(enc : pOggOpusEnc; v : opus_int32
+  ) : cint;
+begin
+  if Assigned(_ope_encoder_ctl) then
+    Result := _ope_encoder_ctl(enc, OPE_SET_COMMENT_PADDING_REQUEST, v)
   else
     Result := 0;
 end;
