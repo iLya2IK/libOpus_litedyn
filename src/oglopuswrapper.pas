@@ -1072,6 +1072,8 @@ type
     const PROP_DECISION_DELAY          = $016;
     const PROP_COMMENT_PADDING         = $017;
 
+    class function EncoderVersionString : String;
+
     class function OpusLibsLoad(const aOpusLibs : array of String) : Boolean;
     class function OpusLibsLoadDefault : Boolean;
     class function IsOpusLibsLoaded : Boolean;
@@ -3351,6 +3353,11 @@ begin
   FillByte(m^, aChannels * sizeof(cfloat), 0);
   opus_pcm_soft_clip(aBuffer, aSamplesCount, aChannels, m);
   Freemem(m);
+end;
+
+class function TOpus.EncoderVersionString : String;
+begin
+  Result := StrPas(PChar(ope_get_version_string()));
 end;
 
 class function TOpus.OpusLibsLoad(const aOpusLibs : array of String
