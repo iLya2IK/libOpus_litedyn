@@ -877,18 +877,16 @@ type
     {  Converts the number of samples to a frame size (frame duration).
        The resulting frame duration is rounded to the maximum available value.
        @param aFreq Frequency of frame in Hz
-       @param aChannels Number of channels in frame
        @param aBytes Amount of samples
        @returns Frame size (duration) as TOpusFrameSize }
-    class function HighFrameSizeSamples(aFreq, aChannels : Cardinal;
+    class function HighFrameSizeSamples(aFreq : Cardinal;
                    aSamples : Integer) : TOpusFrameSize;
     {  Converts the number of samples to a frame size (frame duration).
        The resulting frame duration is rounded to the minimum available value.
        @param aFreq Frequency of frame in Hz
-       @param aChannels Number of channels in frame
        @param aBytes Amount of samples
        @returns Frame size (duration) as TOpusFrameSize }
-    class function LowFrameSizeSamples(aFreq, aChannels : Cardinal;
+    class function LowFrameSizeSamples(aFreq : Cardinal;
                    aSamples : Integer) : TOpusFrameSize;
     {  Converts the frame size (frame duration) to a number of bytes.
        The sample size equal to int16.
@@ -1063,14 +1061,14 @@ type
     class procedure PcmSoftClip(aBuffer : Pointer; aSamplesCount : Integer;
                                       aChannels : Cardinal);
 
-    const PROP_MAX_PACKET_DURATION_MS  = $011;
-    const PROP_MAX_PACKET_SIZE         = $012;
-    const PROP_APPLICATION             = $013;
+    const PROP_MAX_PACKET_DURATION_MS  = $101;
+    const PROP_MAX_PACKET_SIZE         = $102;
+    const PROP_APPLICATION             = $103;
     const PROP_COMPLEXITY              = TOGLSound.PROP_QUALITY;
-    const PROP_HEADER_TYPE             = $014;
-    const PROP_HEADER_CALLBACK         = $015;
-    const PROP_DECISION_DELAY          = $016;
-    const PROP_COMMENT_PADDING         = $017;
+    const PROP_HEADER_TYPE             = $104;
+    const PROP_HEADER_CALLBACK         = $105;
+    const PROP_DECISION_DELAY          = $106;
+    const PROP_COMMENT_PADDING         = $107;
 
     class function EncoderVersionString : String;
 
@@ -1254,7 +1252,7 @@ end;
 function TOpusEncoderDecoder.SamplesToFrameSize(fSamples : Integer
   ) : TOpusFrameSize;
 begin
-  Result := TOpus.LowFrameSizeSamples(fFreq, fChannels, fSamples);
+  Result := TOpus.LowFrameSizeSamples(fFreq, fSamples);
 end;
 
 function TOpusEncoderDecoder.SamplesToBytes(fSamples : Integer;
@@ -1895,15 +1893,20 @@ begin
   if fBuffers.Count > 0 then
   begin
     buf := GetMem(fMaxDataBufferSize);
-    len := fRepacker.OutAll(buf, fMaxDataBufferSize);
-    fRepackerDurationMs := 0;
+    try
+      len := fRepacker.OutAll(buf, fMaxDataBufferSize);
+      fRepackerDurationMs := 0;
 
-    WritePacketHeader(len);
-    DataStream.DoWrite(buf, len);
+      if len > 0 then
+      begin
+        WritePacketHeader(len);
+        DataStream.DoWrite(buf, len);
+      end;
 
-    fRepacker.ReInit;
-
-    FreeMemAndNil(buf);
+      fRepacker.ReInit;
+    finally
+      FreeMemAndNil(buf);
+    end;
 
     fBuffers.Clear;
   end;
@@ -2023,12 +2026,21 @@ end;
 function TOpusStreamEncoder.WriteData(Buffer : Pointer;
   Count : ISoundFrameSize; Par : Pointer) : ISoundFrameSize;
 var
-  Sz : Integer;
+  Sz, Total : Integer;
 begin
-  Sz := WriteFrame(Buffer, fEncoder.SamplesToFrameSize(Count.AsSamples),
-                         Count.SampleSize in [ss32bit, ssFloat]);
+  Total := Count.AsSamples;
   Result := TOGLSound.NewEmptyFrame(Count);
-  Result.IncSamples(Sz);
+  While Total > 0 do
+  begin
+    Sz := WriteFrame(@(PByte(Buffer)[Result.AsBytes]),
+                     fEncoder.SamplesToFrameSize(Total),
+                           Count.SampleSize in [ss32bit, ssFloat]);
+
+    if Sz = 0 then Break;
+
+    Result.IncSamples(Sz);
+    Dec(Total, Sz);
+  end;
 end;
 
 procedure TOpusStreamEncoder.Close(Par : Pointer);
@@ -3213,21 +3225,21 @@ begin
   Result := TimeToLowFrameSize(dur);
 end;
 
-class function TOpus.HighFrameSizeSamples(aFreq, aChannels : Cardinal;
+class function TOpus.HighFrameSizeSamples(aFreq : Cardinal;
   aSamples : Integer) : TOpusFrameSize;
 var
   dur : Single;
 begin
-  dur := single(aSamples) * 1000.0 / single(aChannels * aFreq);
+  dur := single(aSamples) * 1000.0 / single({aChannels * }aFreq);
   Result := TimeToHighFrameSize(dur);
 end;
 
-class function TOpus.LowFrameSizeSamples(aFreq, aChannels : Cardinal;
+class function TOpus.LowFrameSizeSamples(aFreq : Cardinal;
   aSamples : Integer) : TOpusFrameSize;
 var
   dur : Single;
 begin
-  dur := single(aSamples) * 1000.0 / single(aChannels * aFreq);
+  dur := single(aSamples) * 1000.0 / single({aChannels * }aFreq);
   Result := TimeToLowFrameSize(dur);
 end;
 
@@ -3331,6 +3343,11 @@ begin
   if (aFreq > 0) and (aChannels > 0) then
   begin
     Result := TOpus.NewStreamDecoder(aStream, aFreq, aChannels);
+    if aProps.HasProp(TOpus.PROP_HEADER_TYPE) then
+    begin
+      aHeaderType := aProps.Get(TOpus.PROP_HEADER_TYPE);
+      (Result as TOpusStreamDecoder).PacketHeaderType := aHeaderType;
+    end;
   end else
   begin
     aOnReadHeader := POpusPacketReadHeaderRef(PtrUInt(aProps.GetDefault(TOpus.PROP_HEADER_CALLBACK, nil)));
