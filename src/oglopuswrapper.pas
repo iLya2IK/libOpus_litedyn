@@ -559,24 +559,6 @@ type
     ref : TOpusPacketReadHeader;
   end;
 
-  { TOpusDecodedPacket }
-
-  TOpusDecodedPacket = class
-  private
-    fData : Pointer;
-    fLength : Integer;
-  public
-    constructor Create(aLength : Integer);
-    destructor Destroy; override;
-
-    procedure UpdateLength(newLen : Integer);
-
-    function Read(aDest : Pointer; offset, aSz : Integer) : Integer;
-
-    property Length : Integer read FLength;
-    property Data : Pointer read FData;
-  end;
-
   { TOpusStreamDecoder }
 
   TOpusStreamDecoder = class(TSoundAbstractDecoder, ISoundStreamDecoder)
@@ -588,9 +570,12 @@ type
     fPacketHeader : Pointer;
     fPacketHeaderSize : Integer;
     fPacket       : Pointer;
+    fPacketCap    : Integer;
     fPacketSize   : Integer;
 
-    fDecodedData  : TOpusDecodedPacket;
+    fDecodedData  : Pointer;
+    fDecodedSize  : Integer;
+    fDecodedCap   : Integer;
     fDecodedOffset: Integer;
 
     procedure ReallocHeader;
@@ -1282,33 +1267,6 @@ begin
     Result := fBytes div fChannels div sizeof(cint16);
 end;
 
-{ TOpusDecodedPacket }
-
-constructor TOpusDecodedPacket.Create(aLength : Integer);
-begin
-  fData := GetMem(aLength);
-  fLength := aLength;
-end;
-
-destructor TOpusDecodedPacket.Destroy;
-begin
-  FreeMem(fData);
-  inherited Destroy;
-end;
-
-procedure TOpusDecodedPacket.UpdateLength(newLen : Integer);
-begin
-  fLength := newLen;
-end;
-
-function TOpusDecodedPacket.Read(aDest : Pointer; offset, aSz : Integer) : Integer;
-begin
-  if (aSz + offset) > fLength then
-    Result := fLength - offset else
-    Result := aSz;
-  Move(PByte(fData)[offset], aDest^, Result);
-end;
-
 { TOpusDecoder }
 
 procedure TOpusDecoder.Init(afreq : Cardinal; achannels : Cardinal);
@@ -1431,17 +1389,22 @@ end;
 
 procedure TOpusStreamDecoder.ReallocPacket;
 begin
-  if Assigned(fPacket) then
-    FreeMemAndNil(fPacket);
-  if fPacketSize > 0 then
-    fPacket := GetMem(fPacketSize);
+  if fPacketSize > fPacketCap then
+  begin
+    if Assigned(fPacket) then
+      fPacket := ReAllocMem(fPacket, fPacketSize) else
+      fPacket := GetMem(fPacketSize);
+    fPacketCap := fPacketSize;
+  end;
 end;
 
 function TOpusStreamDecoder.ReadNextPacket(isfloat : Boolean) : Integer;
 var
   samples : integer;
-  decoded_max_size : integer;
 begin
+  fDecodedOffset := 0;
+  fDecodedSize :=  0;
+
   if Assigned(fPacket) and (fPacketSize > 0) then
   begin
     Result := DataStream.DoRead(fPacket, fPacketSize);
@@ -1452,33 +1415,37 @@ begin
 
       if samples > 0 then
       begin
-        decoded_max_size := samples * fDecoder.Channels;
+        fDecodedSize := samples * fDecoder.Channels;
         if isfloat then
-          decoded_max_size := decoded_max_size * Sizeof(cfloat)
+          fDecodedSize := fDecodedSize * Sizeof(cfloat)
         else
-          decoded_max_size := decoded_max_size * Sizeof(cint16);
+          fDecodedSize := fDecodedSize * Sizeof(cint16);
 
-        if Assigned(fDecodedData) then fDecodedData.Free;
-        fDecodedData := TOpusDecodedPacket.Create(decoded_max_size);
+        if (fDecodedCap < fDecodedSize) then
+        begin
+          if Assigned(fDecodedData) then
+            fDecodedData := ReAllocMem(fDecodedData, fDecodedSize) else
+            fDecodedData := GetMem(fDecodedSize);
+          fDecodedCap := fDecodedSize;
+        end;
 
         try
           if isfloat then
-            Result := fDecoder.DecodeFloat(fPacket, Result, fDecodedData.Data, samples, false) else
-            Result := fDecoder.DecodeInt16(fPacket, Result, fDecodedData.Data, samples, false);
+            Result := fDecoder.DecodeFloat(fPacket, Result, fDecodedData, samples, false) else
+            Result := fDecoder.DecodeInt16(fPacket, Result, fDecodedData, samples, false);
 
-          decoded_max_size := Result * fDecoder.Channels;
+          fDecodedSize := Result * fDecoder.Channels;
           if isfloat then
-            decoded_max_size := decoded_max_size * Sizeof(cfloat)
+            fDecodedSize := fDecodedSize * Sizeof(cfloat)
           else
-            decoded_max_size := decoded_max_size * Sizeof(cint16);
-
-          fDecodedData.UpdateLength(decoded_max_size);
+            fDecodedSize := fDecodedSize * Sizeof(cint16);
         except
-          on e : EOpus do FreeAndNil(fDecodedData);
+          on e : EOpus do fDecodedSize := 0;
         end;
       end;
     end;
-  end;
+  end else
+    Result := 0;
 end;
 
 procedure TOpusStreamDecoder.ReadPacketHeader;
@@ -1526,20 +1493,24 @@ begin
   Result := 0;
   while Result < aSize do
   begin
-    if Assigned(fDecodedData) then
+    if Assigned(fDecodedData) and (fDecodedSize > 0) then
     begin
-      rsz := fDecodedData.Read(aPCM, fDecodedOffset, aSize - Result);
-      if rsz < 0 then
+      if ((aSize - Result + fDecodedOffset) > fDecodedSize) then
+          rsz := fDecodedSize - fDecodedOffset
+      else
+          rsz := aSize - Result;
+
+      if rsz > 0 then
       begin
-        Result := -1;
+        Move(PByte(fDecodedData)[fDecodedOffset], PByte(aPCM)[Result], rsz);
+      end else
+      begin
         Break;
       end;
       Inc(fDecodedOffset, rsz);
       Inc(Result, rsz);
-      if (fDecodedOffset >= fDecodedData.Length) then
+      if (fDecodedOffset >= fDecodedSize) then
       begin
-        FreeAndNil(fDecodedData);
-        fDecodedOffset := 0;
         try
           if PopNewPacket(isfloat) <= 0 then
             Break;
@@ -1599,6 +1570,10 @@ begin
   fPacketHeader := nil;
   fDecodedData := nil;
   fDecodedOffset := 0;
+  fDecodedCap := 0;
+  fDecodedSize := 0;
+  fPacketSize := 0;
+  fPacketCap := 0;
   fDecoder := TOpusDecoder.Create;
 end;
 
@@ -1611,7 +1586,7 @@ begin
   if Assigned(fPacket) then
     FreeMemAndNil(fPacket);
   if Assigned(fDecodedData) then
-    FreeAndNil(fDecodedData);
+    FreeMemAndNil(fDecodedData);
 end;
 
 function TOpusStreamDecoder.GetSampleSize : TSoundSampleSize;
